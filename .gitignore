@@ -1,0 +1,18 @@
+# Secrets
+config/credentials.json
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+logs/
+
+# Vercel
+.vercel
+
+# Tooling / local
+.DS_Store
+.env*
+.serena/
