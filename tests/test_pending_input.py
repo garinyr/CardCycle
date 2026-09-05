@@ -116,3 +116,23 @@ def test_cancel_callback_clears_pending(monkeypatch):
     w._handle_callback({"id": "1", "data": "cards:cancel", "message": {"chat": {"id": 1}, "message_id": 5}})
     assert cfg.get("cards.pending_action") == ""
     assert edited and "Cancelled" in edited[0]
+
+
+# --- stale/replied Cards prompt must not fall through to expense ---
+
+def test_reply_to_stale_cards_prompt_not_recorded_as_expense(monkeypatch):
+    _patch_flow(monkeypatch, {})
+    msg = {"text": "222", "reply_to_message": {"text": prompts.PROMPT_CARDS_CUTOFF}}
+    reply, _ = w._route(msg)
+    assert "no longer active" in reply
+    assert "Recorded" not in reply
+
+
+def test_reply_to_active_cards_prompt_applies_value(monkeypatch):
+    cfg = _patch_flow(monkeypatch, {"cards.pending_action": "cutoff", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    calls = []
+    monkeypatch.setattr("core.sheets.update_card_cutoff", lambda cid, day: calls.append((cid, day)))
+    msg = {"text": "27", "reply_to_message": {"text": prompts.PROMPT_CARDS_CUTOFF}}
+    reply, _ = w._route(msg)
+    assert calls == [(2, 27)]
+    assert cfg.get("cards.pending_action") == ""

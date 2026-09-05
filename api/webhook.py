@@ -183,10 +183,40 @@ def _running_month_reply(text: str):
     return running.handle(text), menu.reply_keyboard()
 
 
+def _cards_reply(fn):
+    """Reply handler for a Limit/Cutoff prompt (active or stale).
+
+    With an active pending context the value is applied (pending cleared on
+    success). Without one the prompt is stale — guide to tap the action again
+    instead of letting the text fall through to the expense shortcut."""
+    def reply(text: str):
+        if pending_state.pending() is None:
+            return messages.err("That prompt is no longer active — tap the card action again."), menu.reply_keyboard()
+        out = fn(text)
+        if not out.startswith("❌"):
+            pending_state.clear_pending()
+        return out, menu.reply_keyboard()
+    return reply
+
+
+def _cards_add_reply(text: str):
+    """Reply path for the Add prompt: preview + confirm buttons; stale prompt
+    (no pending) is rejected instead of falling through."""
+    if pending_state.pending() is None:
+        return messages.err("That prompt is no longer active — tap the card action again."), menu.reply_keyboard()
+    preview, _ = cards.start_add(text)
+    if preview.startswith("❌"):
+        return preview, menu.reply_keyboard()
+    return preview, menu.add_confirm_keyboard()
+
+
 PROMPT_HANDLERS = {
     prompts.PROMPT_EXPENSE_INPUT: _expense_input_reply,
     prompts.PROMPT_STATEMENT_MONTH: _statement_month_reply,
     prompts.PROMPT_RUNNING_MONTH: _running_month_reply,
+    prompts.PROMPT_CARDS_ADD: _cards_add_reply,
+    prompts.PROMPT_CARDS_LIMIT: _cards_reply(cards.limit_reply),
+    prompts.PROMPT_CARDS_CUTOFF: _cards_reply(cards.cutoff_reply),
 }
 
 
