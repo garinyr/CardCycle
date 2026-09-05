@@ -118,6 +118,17 @@ def test_cancel_callback_clears_pending(monkeypatch):
     assert edited and "Cancelled" in edited[0]
 
 
+def test_cutoff_callback_sets_normalized_pending_action(monkeypatch):
+    # regression: callback token 'cut' must store 'cutoff', not 'cut'
+    cfg = {}
+    _patch_flow(monkeypatch, cfg)
+    monkeypatch.setattr("core.sheets.get_card", lambda cid: TOKOPEDIA if cid == 2 else None)
+    monkeypatch.setattr("core.sheets.get_cards", lambda: [BNI, TOKOPEDIA])
+    monkeypatch.setattr("api.webhook.send_telegram", lambda chat, text, reply_markup=None: None)
+    w._handle_callback({"id": "1", "data": "cards:cut:2", "message": {"chat": {"id": 1}, "message_id": 5}})
+    assert cfg.get("cards.pending_action") == "cutoff"
+
+
 # --- stale/replied Cards prompt must not fall through to expense ---
 
 def test_reply_to_stale_cards_prompt_not_recorded_as_expense(monkeypatch):

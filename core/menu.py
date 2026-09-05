@@ -6,6 +6,19 @@ and fire callback_query.
 """
 
 from core.cycle import cycle_label_for, prev_cycle_label
+from core.cb import (
+    CARDS_ACTION_ADD as ACTION_ADD,
+    CARDS_ACTION_ADDNO as ACTION_ADDNO,
+    CARDS_ACTION_ADDYES as ACTION_ADDYES,
+    CARDS_ACTION_CANCEL as ACTION_CANCEL,
+    CARDS_ACTION_CUTOFF as ACTION_CUTOFF,
+    CARDS_ACTION_LIMIT as ACTION_LIMIT,
+    CARDS_ACTION_LIST as ACTION_LIST,
+    CARDS_ACTION_MAIN as ACTION_MAIN,
+    CARDS_ACTION_SEL as ACTION_SEL,
+    PREFIX_CARDS,
+    build as cb_build,
+)
 from core.formatter import DIVIDER, block, bold
 
 BTN_EXPENSE = "💳 Expense"
@@ -141,8 +154,8 @@ def cards_pick_keyboard(cards: list[dict], default_card: dict | None = None) -> 
         label = f"💳 {c['card_name']}"
         if c["card_id"] == default_id:
             label += " ⭐"
-        rows.append([{"text": label, "callback_data": f"cards:sel:{c['card_id']}"}])
-    rows.append([{"text": "➕ Add card", "callback_data": "cards:add"}])
+        rows.append([{"text": label, "callback_data": cb_build(PREFIX_CARDS, ACTION_SEL, c["card_id"])}])
+    rows.append([{"text": "➕ Add card", "callback_data": cb_build(PREFIX_CARDS, ACTION_ADD)}])
     return {"inline_keyboard": rows}
 
 
@@ -151,23 +164,23 @@ def cards_actions_keyboard(card: dict, default_card: dict | None = None) -> dict
     default_id = default_card["card_id"] if default_card else None
     actions = []
     if card["card_id"] != default_id:
-        actions.append({"text": "⭐ Make main", "callback_data": f"cards:main:{card['card_id']}"})
-    actions.append({"text": "🎯 Limit", "callback_data": f"cards:lmt:{card['card_id']}"})
-    actions.append({"text": "📅 Cutoff", "callback_data": f"cards:cut:{card['card_id']}"})
-    return {"inline_keyboard": [actions, [{"text": "↩️ Back", "callback_data": "cards:list"}]]}
+        actions.append({"text": "⭐ Make main", "callback_data": cb_build(PREFIX_CARDS, ACTION_MAIN, card["card_id"])})
+    actions.append({"text": "🎯 Limit", "callback_data": cb_build(PREFIX_CARDS, ACTION_LIMIT, card["card_id"])})
+    actions.append({"text": "📅 Cutoff", "callback_data": cb_build(PREFIX_CARDS, ACTION_CUTOFF, card["card_id"])})
+    return {"inline_keyboard": [actions, [{"text": "↩️ Back", "callback_data": cb_build(PREFIX_CARDS, ACTION_LIST)}]]}
 
 
 def pending_cancel_keyboard() -> dict:
     """Cancel button on a plain pending prompt (reply-free input)."""
-    return {"inline_keyboard": [[{"text": "✖️ Cancel", "callback_data": "cards:cancel"}]]}
+    return {"inline_keyboard": [[{"text": "✖️ Cancel", "callback_data": cb_build(PREFIX_CARDS, ACTION_CANCEL)}]]}
 
 
 def add_confirm_keyboard() -> dict:
     """Confirm/deny buttons for a parsed Add draft."""
     return {
         "inline_keyboard": [[
-            {"text": "✅ Yes, add it", "callback_data": "cards:addyes"},
-            {"text": "✖️ No", "callback_data": "cards:addno"},
+            {"text": "✅ Yes, add it", "callback_data": cb_build(PREFIX_CARDS, ACTION_ADDYES)},
+            {"text": "✖️ No", "callback_data": cb_build(PREFIX_CARDS, ACTION_ADDNO)},
         ]]
     }
 

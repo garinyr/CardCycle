@@ -10,6 +10,7 @@ from api import auth, config
 from api.commands import cards, expense, help as help_cmd, running, statement, summary
 from api.telegram import answer_callback, edit_telegram, send_telegram
 from core import menu, messages, pending as pending_state, prompts, sheets
+from core.cb import PREFIX_CARDS, action_of
 from core.formatter import parse_month_arg, today_wib
 from core.logger import get_logger, log_event
 from core.parser import parse_amount, parse_date
@@ -248,8 +249,8 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
 
     if prefix == "cards":
         if action == "add":
-            pending_state.set_pending("add")
-            log_event(log, "cards_pending_set", action="add")
+            pending_state.set_pending(pending_state.ACTION_ADD)
+            log_event(log, "cards_pending_set", action=pending_state.ACTION_ADD)
             send_telegram(chat_id, prompts.PROMPT_CARDS_ADD, reply_markup=menu.pending_cancel_keyboard())
             return
         if action == "list":
@@ -297,7 +298,7 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
             card = sheets.get_card(card_id)
             if card is None or not card.get("is_active"):
                 return
-            pending_state.set_pending(action, card_id)
+            pending_state.set_pending(action_of(PREFIX_CARDS, action), card_id)
             log_event(log, "cards_pending_set", action=action, card=card_id)
             prompt = prompts.PROMPT_CARDS_LIMIT if action == "lmt" else prompts.PROMPT_CARDS_CUTOFF
             send_telegram(chat_id, prompt, reply_markup=menu.pending_cancel_keyboard())
@@ -454,17 +455,23 @@ def _route(message: dict) -> tuple[str, dict]:
     log_event(log, "pending_read", action=p[0] if p else None)
     if p:
         action = p[0]
-        if action == "add":
+        if action == pending_state.ACTION_ADD:
             reply, _ = cards.start_add(text)
             if reply.startswith("❌"):
                 return reply, menu.pending_cancel_keyboard()  # keep pending, allow cancel
             return reply, menu.add_confirm_keyboard()
-        fn = {"limit": cards.limit_reply, "cutoff": cards.cutoff_reply}.get(action)
+        fn = {
+            pending_state.ACTION_LIMIT: cards.limit_reply,
+            pending_state.ACTION_CUTOFF: cards.cutoff_reply,
+        }.get(action)
         if fn:
             reply = fn(text)
             if not reply.startswith("❌"):
                 pending_state.clear_pending()
             return reply, menu.reply_keyboard()
+        # Unknown pending action — never fall through to the expense shortcut.
+        pending_state.clear_pending()
+        return messages.err("That action is no longer available — tap the card action again."), menu.reply_keyboard()
 
     # 5. Direct expense entry (date/amount first).
     if _looks_like_expense(text):

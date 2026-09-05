@@ -25,6 +25,11 @@ from api.config import (
     CONFIG_PENDING_ACTION,
     CONFIG_PENDING_TS,
 )
+from core.cb import (  # single source
+    CARDS_ACTION_ADD as ACTION_ADD,
+    CARDS_ACTION_CUTOFF as ACTION_CUTOFF,
+    CARDS_ACTION_LIMIT as ACTION_LIMIT,
+)
 from core import sheets
 from core.logger import get_logger, log_event
 
