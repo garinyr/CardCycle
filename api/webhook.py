@@ -396,7 +396,10 @@ def _route(message: dict) -> tuple[str, dict]:
     if _looks_like_expense(text):
         return _safe(expense.handle, text)
 
-    # 4. Legacy slash → redirect, never silent.
+    # 4. /start and /help are the friendly entry commands — show the menu.
+    #    Every other legacy slash → redirect, never silent.
+    if _extract_command(text) in ("start", "help"):
+        return help_cmd.handle(""), menu.reply_keyboard()
     if text.startswith("/"):
         return SLASH_REDIRECT, menu.reply_keyboard()
 

@@ -56,6 +56,29 @@ def test_route_slash_redirect():
     assert "keyboard" in markup
 
 
+# /start and /help show the menu instead of the redirect
+from core import menu as menu_mod
+
+
+def test_route_start_shows_menu():
+    msg = {"text": "/start"}
+    reply, markup = w._route(msg)
+    assert reply == menu_mod.menu_text()
+    assert "keyboard" in markup
+
+
+def test_route_start_with_payload_shows_menu():
+    msg = {"text": "/start ref-123"}
+    reply, _ = w._route(msg)
+    assert reply == menu_mod.menu_text()
+
+
+def test_route_help_slash_shows_menu():
+    msg = {"text": "/help"}
+    reply, _ = w._route(msg)
+    assert reply == menu_mod.menu_text()
+
+
 # 5. fallback
 def test_route_fallback():
     msg = {"text": "asdfghjkl"}
