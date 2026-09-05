@@ -6,6 +6,8 @@ CARD = {"card_id": 1, "card_name": "Test", "card_limit": 15000000, "cutoff_day":
 
 def _patch_sheets(monkeypatch):
     monkeypatch.setattr("core.sheets.get_default_card", lambda: dict(CARD))
+    monkeypatch.setattr("core.sheets.get_cards", lambda: [])
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     monkeypatch.setattr("core.sheets.read_transactions", lambda: [])
     monkeypatch.setattr("core.sheets.allocate_ids", lambda count=1: 1)
     monkeypatch.setattr("core.sheets.append_transactions", lambda rows: None)
@@ -30,7 +32,8 @@ def test_route_menu_label_statement(monkeypatch):
     assert "inline_keyboard" in markup
 
 
-def test_route_menu_label_expense_forces_reply():
+def test_route_menu_label_expense_forces_reply(monkeypatch):
+    _patch_sheets(monkeypatch)
     msg = {"text": menu.BTN_EXPENSE}
     reply, markup = w._route(msg)
     assert reply == prompts.PROMPT_EXPENSE_INPUT

@@ -34,6 +34,68 @@ def _force_reply_markup() -> dict:
     return _retry_markup("Reply to this message")
 
 
+# --- expense card picker (MVP2 Option D) ---
+
+def _sticky_expense_card() -> dict | None:
+    raw = (sheets.get_config() or {}).get(config.CONFIG_EXPENSE_CARD_ID, "")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    for c in sheets.get_cards():
+        if c["card_id"] == value and c.get("is_active"):
+            return c
+    return None
+
+
+def _expense_entry():
+    """Tap 💳 Expense: >1 active card → chip picker first; else straight to the
+    prompt (v1.0.0 behavior)."""
+    default = sheets.get_default_card()
+    if default is None:
+        return messages.err("No card set up yet. Prepare the Cards sheet first."), menu.reply_keyboard()
+    active = [c for c in sheets.get_cards() if c.get("is_active")]
+    if len(active) <= 1:
+        return prompts.PROMPT_EXPENSE_INPUT, _force_reply_markup()
+    sticky = _sticky_expense_card()
+    text = "💳 Expense — record to which card?"
+    return text, menu.expense_choice_keyboard(default, sticky)
+
+
+def _send_expense_prompt(chat_id, card: dict) -> None:
+    """After a chip pick: remember the card and send the prompt + ForceReply.
+    The chosen card is visible in the placeholder so the user never mis-posts."""
+    sheets.upsert_config(config.CONFIG_EXPENSE_CARD_ID, str(card["card_id"]))
+    name = card.get("card_name") or "card"
+    send_telegram(
+        chat_id,
+        prompts.PROMPT_EXPENSE_INPUT,
+        reply_markup=_retry_markup(f"Recording to {name} — type amount + description"),
+    )
+
+
+def _expense_callback(action: str, chat_id, message_id) -> None:
+    if action == "other":
+        default = sheets.get_default_card()
+        cards = sheets.get_cards()
+        edit_telegram(chat_id, message_id, "💳 Expense — pick a card:",
+                      reply_markup=menu.expense_pick_keyboard(cards, default))
+        return
+    if action.startswith("pick:"):
+        try:
+            card_id = int(action.split(":", 1)[1])
+        except (IndexError, ValueError):
+            return
+        card = sheets.get_card(card_id)
+        if card is None or not card.get("is_active"):
+            return
+        _send_expense_prompt(chat_id, card)
+        return
+
+
+
 def _cutoff() -> int:
     card = sheets.get_default_card()
     return (card or {}).get("cutoff_day") or 13
@@ -111,7 +173,7 @@ PROMPT_HANDLERS = {
 def _menu_flow(cmd: str):
     """Button tap → the feature's entry flow (ForceReply prompt or a view)."""
     if cmd == "expense":
-        return prompts.PROMPT_EXPENSE_INPUT, _force_reply_markup()
+        return _expense_entry()
     if cmd == "statement":
         return _statement_view()
     if cmd == "running":
@@ -125,6 +187,10 @@ def _menu_flow(cmd: str):
 
 def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id):
     """Render a feature for an inline callback and edit the message in place."""
+    if prefix == "exp":
+        _expense_callback(action, chat_id, message_id)
+        return
+
     if prefix == "limit":
         if action == "edit":
             send_telegram(chat_id, prompts.PROMPT_LIMIT_UPDATE, reply_markup=_force_reply_markup())

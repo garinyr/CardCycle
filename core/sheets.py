@@ -175,6 +175,24 @@ def set_config(key: str, value) -> None:
     _invalidate_config_cache()
 
 
+def upsert_config(key: str, value) -> None:
+    """Update `key` in Config, or append the row when it does not exist yet.
+
+    MVP2 groundwork (sticky `expense_card_id`) — keys may be created at runtime,
+    unlike the MVP1 keys that are provisioned manually.
+    """
+    ws = _worksheet(SHEET_CONFIG)
+    keys = ws.col_values(1)  # column A = key
+    try:
+        idx = keys.index(key)
+    except ValueError:
+        # headers: key | value | description | updated_at
+        ws.append_rows([[key, value, "", ""]], value_input_option="RAW")
+    else:
+        ws.update_cell(idx + 1, 2, value)
+    _invalidate_config_cache()
+
+
 def allocate_ids(count: int = 1) -> int:
     """Reserve `count` monotonic ids in one update; return the first id."""
     ws = _worksheet(SHEET_CONFIG)

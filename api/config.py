@@ -9,6 +9,12 @@ SHEET_CARDS = "Cards"
 SHEET_CONFIG = "Config"
 SHEET_TRANSACTIONS = "Transactions"
 
+# Config keys
+CONFIG_NEXT_ID = "next_id"
+CONFIG_NEXT_CARD_ID = "next_card_id"
+CONFIG_DEFAULT_CARD_ID = "default_card_id"
+CONFIG_EXPENSE_CARD_ID = "expense_card_id"
+
 AUTHORIZED_USER_ID = int(os.environ.get("TELEGRAM_USER_ID") or "0")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 

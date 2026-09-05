@@ -5,6 +5,7 @@ CARD = {"card_id": 1, "card_name": "Test", "card_limit": 15000000, "cutoff_day":
 
 def _patch(monkeypatch, append_list):
     monkeypatch.setattr("core.sheets.get_default_card", lambda: dict(CARD))
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     monkeypatch.setattr("core.sheets.allocate_ids", lambda count=1: 100)
     monkeypatch.setattr("core.sheets.append_transactions", append_list.append)
 

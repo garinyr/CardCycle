@@ -1,19 +1,26 @@
-"""api/commands/statement.py — /statement [month] [detail]."""
+"""api/commands/statement.py — statement for the selected card (MVP2-ready).
 
-from core import messages, sheets
+Target card: `@name` wins (active cards only), else the default card.
+Optional typed month / detail; otherwise the latest frozen cycle for that
+card's cutoff. MVP1 behavior (no `@`) is unchanged.
+"""
+
+from core import cardref, messages, sheets
 from core.cycle import cycle_label_for, prev_cycle_label
 from core.formatter import parse_month_arg, render_statement, today_wib
 
 
 def handle(text: str) -> str:
     today = today_wib()
-    card = sheets.get_default_card()
+    default_card = sheets.get_default_card()
+    cards = sheets.get_cards() if cardref.extract_at_refs(text) else None
+    card, error = cardref.command_card(text, cards, default_card)
     if card is None:
-        return messages.no_card()
+        return messages.err(error) if error else messages.no_card()
 
     label = None
     detail = False
-    for tok in text.split():
+    for tok in cardref.strip_card_refs(text).split():
         t = tok.strip().lower()
         if t in ("detail", "d"):
             detail = True

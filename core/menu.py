@@ -121,3 +121,29 @@ def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", detail: bool = 
 def limit_keyboard() -> dict:
     """Inline keyboard for the limit view — edit button."""
     return {"inline_keyboard": [[{"text": "✏️ Update Limit", "callback_data": "limit:edit"}]]}
+
+
+# --- expense card picker (MVP2 Option D) ---
+
+def expense_choice_keyboard(default_card: dict, sticky_card: dict | None) -> dict:
+    """First step of the expense flow when >1 active card: chips to pick where
+    the batch will be recorded. The current target (sticky or default) leads;
+    ⭐ marks the global default; Other opens the full picker."""
+    current = sticky_card if sticky_card is not None else default_card
+    buttons = [{"text": f"💳 {current['card_name']}", "callback_data": f"exp:pick:{current['card_id']}"}]
+    if sticky_card is not None and sticky_card["card_id"] != default_card["card_id"]:
+        buttons.append({"text": f"💳 {default_card['card_name']} ⭐", "callback_data": f"exp:pick:{default_card['card_id']}"})
+    buttons.append({"text": "🗂 Other card…", "callback_data": "exp:other"})
+    return {"inline_keyboard": [buttons]}
+
+
+def expense_pick_keyboard(cards: list[dict], default_card: dict | None = None) -> dict:
+    """Full picker list for the expense flow (when chips aren't enough).
+    One button per active card; ⭐ marks the global default."""
+    rows = []
+    for c in cards:
+        if not c.get("is_active"):
+            continue
+        marker = " ⭐" if default_card is not None and c["card_id"] == default_card["card_id"] else ""
+        rows.append([{"text": f"💳 {c['card_name']}{marker}", "callback_data": f"exp:pick:{c['card_id']}"}])
+    return {"inline_keyboard": rows}
