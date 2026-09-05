@@ -127,22 +127,34 @@ def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", card_id: int = 
 
 # --- expense card picker (MVP2 Option D) ---
 
-def cards_view_keyboard(cards: list[dict], default_card: dict | None = None) -> dict:
-    """Cards view inline rows: per-card actions + Add (MVP2 refinement).
+def cards_pick_keyboard(cards: list[dict], default_card: dict | None = None) -> dict:
+    """Cards view inline rows: one tappable row per card (no duplicated actions).
 
-    Each row: ⭐ Make main (non-default) · 🎯 Limit · 📅 Cutoff. The card is
-    chosen by the tap — later typing asks for the value only (no @name).
+    Tap a card → its own action menu opens in the same message. Add sits at
+    the bottom (a new card has no row yet).
     """
     default_id = default_card["card_id"] if default_card else None
     rows = []
     for c in cards:
-        actions = [{"text": "🎯 Limit", "callback_data": f"cards:lmt:{c['card_id']}"}]
-        if c.get("is_active") and c["card_id"] != default_id:
-            actions.insert(0, {"text": "⭐ Make main", "callback_data": f"cards:main:{c['card_id']}"})
-        actions.append({"text": "📅 Cutoff", "callback_data": f"cards:cut:{c['card_id']}"})
-        rows.append(actions)
+        if not c.get("is_active"):
+            continue
+        label = f"💳 {c['card_name']}"
+        if c["card_id"] == default_id:
+            label += " ⭐"
+        rows.append([{"text": label, "callback_data": f"cards:sel:{c['card_id']}"}])
     rows.append([{"text": "➕ Add card", "callback_data": "cards:add"}])
     return {"inline_keyboard": rows}
+
+
+def cards_actions_keyboard(card: dict, default_card: dict | None = None) -> dict:
+    """Action menu for one selected card (single row of actions + Back)."""
+    default_id = default_card["card_id"] if default_card else None
+    actions = []
+    if card["card_id"] != default_id:
+        actions.append({"text": "⭐ Make main", "callback_data": f"cards:main:{card['card_id']}"})
+    actions.append({"text": "🎯 Limit", "callback_data": f"cards:lmt:{card['card_id']}"})
+    actions.append({"text": "📅 Cutoff", "callback_data": f"cards:cut:{card['card_id']}"})
+    return {"inline_keyboard": [actions, [{"text": "↩️ Back", "callback_data": "cards:list"}]]}
 
 
 def expense_choice_keyboard(default_card: dict, sticky_card: dict | None) -> dict:

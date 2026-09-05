@@ -37,6 +37,20 @@ def _clear_pending() -> None:
     sheets.upsert_config(CONFIG_CARDS_EDIT_CARD_ID, "")
 
 
+def _line(c: dict, default_id: int | None) -> str:
+    name = esc(c.get("card_name") or "?")
+    limit = c.get("card_limit")
+    cutoff = c.get("cutoff_day")
+    flags = []
+    if c["card_id"] == default_id:
+        flags.append("⭐ default")
+    if not c.get("is_active"):
+        flags.append("inactive")
+    detail = f"limit {rupiah(limit)} · cutoff {cutoff}" if cutoff else f"limit {rupiah(limit)}"
+    suffix = f"  ({', '.join(flags)})" if flags else ""
+    return f"{c['card_id']}. {name} — {detail}{suffix}"
+
+
 def view() -> str:
     """Card list + flags. Empty list → error prompting to Add."""
     cards = sheets.get_cards()
@@ -44,21 +58,17 @@ def view() -> str:
         return messages.err("No cards yet — tap ➕ Add card to create one.")
     default = sheets.get_default_card()
     default_id = default["card_id"] if default else None
+    return messages.info("Your cards", *[_line(c, default_id) for c in cards])
 
-    lines = []
-    for c in cards:
-        name = esc(c.get("card_name") or "?")
-        limit = c.get("card_limit")
-        cutoff = c.get("cutoff_day")
-        flags = []
-        if c["card_id"] == default_id:
-            flags.append("⭐ default")
-        if not c.get("is_active"):
-            flags.append("inactive")
-        detail = f"limit {rupiah(limit)} · cutoff {cutoff}" if cutoff else f"limit {rupiah(limit)}"
-        suffix = f"  ({', '.join(flags)})" if flags else ""
-        lines.append(f"{c['card_id']}. {name} — {detail}{suffix}")
-    return messages.info("Your cards", *lines)
+
+def describe(card_id: int) -> str:
+    """Single-card header shown when its action menu opens."""
+    card = sheets.get_card(card_id)
+    if card is None:
+        return messages.err("Card not found.")
+    default = sheets.get_default_card()
+    default_id = default["card_id"] if default else None
+    return _line(card, default_id)
 
 
 def set_main(card_id: int) -> str:

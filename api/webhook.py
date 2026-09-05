@@ -211,7 +211,7 @@ def _menu_flow(cmd: str):
         return _default_card_view("run")
     if cmd == "cards":
         default = sheets.get_default_card()
-        return cards.view(), menu.cards_view_keyboard(sheets.get_cards(), default)
+        return cards.view(), menu.cards_pick_keyboard(sheets.get_cards(), default)
     if cmd == "summary":
         return summary.handle(), menu.reply_keyboard()
     return help_cmd.handle(""), menu.reply_keyboard()  # help
@@ -229,6 +229,22 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
         if action == "add":
             send_telegram(chat_id, prompts.PROMPT_CARDS_ADD, reply_markup=_force_reply_markup())
             return
+        if action == "list":
+            default = sheets.get_default_card()
+            edit_telegram(chat_id, message_id, cards.view(),
+                          reply_markup=menu.cards_pick_keyboard(sheets.get_cards(), default))
+            return
+        if action == "sel":
+            try:
+                card_id = int(token)
+            except (TypeError, ValueError):
+                return
+            card = sheets.get_card(card_id)
+            if card is None or not card.get("is_active"):
+                return
+            edit_telegram(chat_id, message_id, cards.describe(card_id),
+                          reply_markup=menu.cards_actions_keyboard(card, sheets.get_default_card()))
+            return
         if action == "main":
             try:
                 card_id = int(token)
@@ -236,7 +252,8 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
                 return
             reply = cards.set_main(card_id)
             default = sheets.get_default_card()
-            edit_telegram(chat_id, message_id, reply, reply_markup=menu.cards_view_keyboard(sheets.get_cards(), default))
+            edit_telegram(chat_id, message_id, reply,
+                          reply_markup=menu.cards_pick_keyboard(sheets.get_cards(), default))
             return
         if action in ("lmt", "cut"):
             try:

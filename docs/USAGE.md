@@ -118,12 +118,13 @@ If no limit is set yet, the bot says "Limit not set" instead of guessing.
 
 ## Managing your cards — 🗂 Cards
 
-**Cards** lists every card (⭐ = the main/default one; "inactive" = archived).
-Under each card are its own buttons, so you never type a card name:
+**Cards** lists every card as a tappable row (⭐ = the main/default one).
+Tap a card → its actions appear (only for that card — nothing is duplicated):
 
-- **⭐ Make main** (shown on non-default cards) — one tap, no typing.
+- **⭐ Make main** (shown when it is not the default) — one tap, no typing.
 - **🎯 Limit** — the bot asks only for the new number: `8000000`.
 - **📅 Cutoff** — the bot asks only for the new day: `27`.
+- **↩️ Back** returns to the card list.
 
 The chosen card is always shown while you type (e.g. `New limit for BNI
 Mastercard`), and the change is confirmed with the card's name — wrong card
