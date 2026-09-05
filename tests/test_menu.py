@@ -12,6 +12,8 @@ def test_cmd_for_label_expected_commands():
     assert menu.cmd_for_label("📄 Statement") == "statement"
     assert menu.cmd_for_label("📊 Running") == "running"
     assert menu.cmd_for_label("🎯 Limit") == "limit"
+    assert menu.cmd_for_label("🗂 Cards") == "cards"
+    assert menu.cmd_for_label("📊 Summary") == "summary"
     assert menu.cmd_for_label("ℹ️ Help") == "help"
 
 

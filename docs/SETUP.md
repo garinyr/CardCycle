@@ -46,7 +46,8 @@ pip install -r requirements.txt
 Create a blank spreadsheet and add 3 sheets: `Cards`, `Config`, `Transactions`.
 Row 1 = header (columns in this order):
 
-**`Cards`** — one row per card:
+**`Cards`** — one row per card; add more cards by appending rows (no schema
+change). First new card gets `card_id = 2` (from `Config.next_card_id`):
 ```
 card_id | card_name | bank | card_limit | cutoff_day | due_day | is_active | created_at | updated_at
 1       | BNI       | BNI  | 15000000   | 13         | 15      | TRUE      | 2026-08-23 | 2026-08-23
@@ -55,9 +56,12 @@ card_id | card_name | bank | card_limit | cutoff_day | due_day | is_active | cre
 **`Config`** — app-level key-value:
 ```
 key              | value | description
+next_card_id     | 2     | card id counter (monotonic; next new card gets id 2)
 default_card_id  | 1     | default card
 next_id          | 1     | transaction id counter (monotonic)
 ```
+> `expense_card_id` (remembered card for Expense) is **auto-created** by the bot
+> when you pick a card — do not add it manually.
 
 **`Transactions`** — row 1 header, data empty for now:
 ```

@@ -12,12 +12,15 @@ BTN_EXPENSE = "💳 Expense"
 BTN_STATEMENT = "📄 Statement"
 BTN_RUNNING = "📊 Running"
 BTN_LIMIT = "🎯 Limit"
+BTN_CARDS = "🗂 Cards"
+BTN_SUMMARY = "📊 Summary"
 BTN_HELP = "ℹ️ Help"
 
-# 2-column grid, Help last.
+# 3×2 grid, Help last.
 MENU = [
     [BTN_EXPENSE, BTN_STATEMENT],
     [BTN_RUNNING, BTN_LIMIT],
+    [BTN_CARDS, BTN_SUMMARY],
     [BTN_HELP],
 ]
 
@@ -26,6 +29,8 @@ _LABEL_TO_CMD = {
     BTN_STATEMENT: "statement",
     BTN_RUNNING: "running",
     BTN_LIMIT: "limit",
+    BTN_CARDS: "cards",
+    BTN_SUMMARY: "summary",
     BTN_HELP: "help",
 }
 
@@ -59,6 +64,8 @@ def menu_text() -> str:
         f"{BTN_STATEMENT} — Latest issued statement + utilization",
         f"{BTN_RUNNING} — Current (running) cycle + utilization",
         f"{BTN_LIMIT} — View / update card limit",
+        f"{BTN_CARDS} — List / manage your cards",
+        f"{BTN_SUMMARY} — All cards' utilization at a glance",
         f"{BTN_HELP} — This help",
     )
 
@@ -77,15 +84,19 @@ def _month_label(label: str) -> str:
     return f"{_MONTH_ABBR[m]} {y % 100:02d}"
 
 
-def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", detail: bool = False, current: str | None = None, count: int = 6, months: bool = True) -> dict:
+def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", card_id: int = 1, detail: bool = False, current: str | None = None, count: int = 6, months: bool = True, show_other: bool = True) -> dict:
     """Inline keyboard for statement/running.
 
     prefix: 'stmt' (starts at latest frozen) or 'run' (starts at running cycle).
+    card_id: the card this picker belongs to — embedded in every token so a
+             callback knows which card to render (MVP2 multi-card).
     current: 'YYYY-MM' month currently displayed — drives the detail-toggle token only.
              The grid itself is always anchored to the latest cycle for the prefix,
              so tapping a month renders it without moving the grid.
     count: number of month buttons (older months typed via "Other month").
     months: False → detail toggle only, no month grid / "Other month" (running uses this).
+    show_other: False hides "Other month" (non-default-card views; typed months
+                target the default card, so the button is only offered there).
     """
     running = cycle_label_for(today, cutoff_day)
     anchor = prev_cycle_label(running) if prefix == "stmt" else running
@@ -98,7 +109,7 @@ def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", detail: bool = 
         for _ in range(count - 1):
             labels.append(prev_cycle_label(labels[-1]))
         month_buttons = [
-            {"text": _month_label(l), "callback_data": f"{prefix}:{_token(l)}"}
+            {"text": _month_label(l), "callback_data": f"{prefix}:{card_id}:{_token(l)}"}
             for l in labels
         ]
         for i in range(0, len(month_buttons), 3):
@@ -107,12 +118,12 @@ def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", detail: bool = 
     cur_token = _token(viewed)
     detail_btn = {
         "text": "🔼 Summary" if detail else "🔍 Details",
-        "callback_data": f"{prefix}:{'detail_off' if detail else 'detail_on'}:{cur_token}",
+        "callback_data": f"{prefix}:{card_id}:{cur_token}:detail_off" if detail else f"{prefix}:{card_id}:{cur_token}:detail_on",
     }
     rows.append([detail_btn])
 
-    if months:
-        other_btn = {"text": "📅 Other month", "callback_data": f"{prefix}:other"}
+    if months and show_other:
+        other_btn = {"text": "📅 Other month", "callback_data": f"{prefix}:other:{card_id}"}
         rows.append([other_btn])
 
     return {"inline_keyboard": rows}
@@ -124,6 +135,18 @@ def limit_keyboard() -> dict:
 
 
 # --- expense card picker (MVP2 Option D) ---
+
+def cards_action_keyboard() -> dict:
+    """Inline action row under the Cards view (MVP2)."""
+    return {
+        "inline_keyboard": [[
+            {"text": "➕ Add", "callback_data": "cards:add"},
+            {"text": "⭐ Default", "callback_data": "cards:default"},
+            {"text": "🎯 Limit", "callback_data": "cards:limit"},
+            {"text": "📅 Cutoff", "callback_data": "cards:cutoff"},
+        ]]
+    }
+
 
 def expense_choice_keyboard(default_card: dict, sticky_card: dict | None) -> dict:
     """First step of the expense flow when >1 active card: chips to pick where

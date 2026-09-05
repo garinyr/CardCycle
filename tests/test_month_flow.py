@@ -13,7 +13,7 @@ def test_statement_month_valid(monkeypatch):
     _patch_sheets(monkeypatch)
     text, markup = w._statement_month_reply("mar25")
     assert "March 2025" in text
-    assert "inline_keyboard" in markup
+    assert "keyboard" in markup  # typed reply re-attaches the reply-keyboard menu
 
 
 def test_statement_month_invalid_retries(monkeypatch):
@@ -27,7 +27,7 @@ def test_running_month_valid(monkeypatch):
     _patch_sheets(monkeypatch)
     text, markup = w._running_month_reply("mar25")
     assert "March 2025" in text
-    assert "inline_keyboard" in markup
+    assert "keyboard" in markup
 
 
 def test_running_month_invalid_retries_distinct_prompt(monkeypatch):

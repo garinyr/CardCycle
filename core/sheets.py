@@ -13,6 +13,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from api.config import (
+    CONFIG_NEXT_CARD_ID,
     SCOPES,
     SHEET_CARDS,
     SHEET_CONFIG,
@@ -137,6 +138,53 @@ def update_card_limit(card_id: int, new_limit) -> None:
     else:
         raise RuntimeError(f"card_id {card_id} not found")
     ws.update_cell(row, 4, new_limit)  # column D = card_limit
+    _invalidate_cards_cache()
+
+
+def update_card_cutoff(card_id: int, cutoff_day: int) -> None:
+    """Update a card's cutoff day (column E). No backfill — cycle is on-read."""
+    ws = _worksheet(SHEET_CARDS)
+    ids = ws.col_values(1)
+    for idx, v in enumerate(ids):
+        if _to_int(v) == card_id:
+            row = idx + 1
+            break
+    else:
+        raise RuntimeError(f"card_id {card_id} not found")
+    ws.update_cell(row, 5, cutoff_day)  # column E = cutoff_day
+    _invalidate_cards_cache()
+
+
+def allocate_card_id() -> int:
+    """Reserve one card id from the independent counter `Config.next_card_id`.
+
+    When the key is missing (fresh sheet before the manual migration), seed it
+    from the max existing `Cards.card_id` + 1 and write the counter forward.
+    """
+    ws = _worksheet(SHEET_CONFIG)
+    keys = ws.col_values(1)
+    try:
+        idx = keys.index(CONFIG_NEXT_CARD_ID)
+    except ValueError:
+        ids = [c["card_id"] for c in get_cards(force=True) if c.get("card_id")]
+        cur = (max(ids) + 1) if ids else 1
+        ws.append_rows([[CONFIG_NEXT_CARD_ID, cur + 1, "", ""]], value_input_option="RAW")
+    else:
+        row = idx + 1
+        cur = _to_int(ws.cell(row, 2).value) or 0
+        ws.update_cell(row, 2, cur + 1)
+    _invalidate_config_cache()
+    return cur
+
+
+def add_card(card_id: int, name: str, limit, cutoff_day: int, bank: str = "") -> None:
+    """Append a new card row to `Cards` (RAW write, timestamps WIB)."""
+    from core.formatter import now_wib_iso  # local import — avoid import cycle
+
+    ws = _worksheet(SHEET_CARDS)
+    now = now_wib_iso()
+    ws.append_rows([[card_id, name, bank, limit, cutoff_day, "", "TRUE", now, now]],
+                   value_input_option="RAW")
     _invalidate_cards_cache()
 
 

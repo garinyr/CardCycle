@@ -7,7 +7,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 
 from api import auth, config
-from api.commands import expense, help as help_cmd, limit, running, statement
+from api.commands import cards, expense, help as help_cmd, limit, running, statement, summary
 from api.telegram import answer_callback, edit_telegram, send_telegram
 from core import menu, messages, prompts, sheets
 from core.formatter import parse_month_arg, today_wib
@@ -112,20 +112,52 @@ def _safe(fn, arg) -> tuple[str, dict]:
         return messages.warn("Something went wrong. Please try again later."), menu.reply_keyboard()
 
 
-# --- feature views (text + inline markup) ---
+# --- feature views (text + inline markup, card-aware) ---
 
-def _statement_view(month_arg: str = "", detail: bool = False):
-    text = statement.handle((month_arg + (" detail" if detail else "")).strip())
-    label = parse_month_arg(month_arg.strip(), today_wib()) if month_arg.strip() else None
-    markup = menu.month_keyboard(today_wib(), _cutoff(), prefix="stmt", detail=detail, current=label, count=3)
-    return text, markup
+from core.cycle import cycle_label_for, prev_cycle_label  # noqa: E402
+from core.formatter import render_statement  # noqa: E402
 
 
-def _running_view(month_arg: str = "", detail: bool = False):
-    text = running.handle((month_arg + (" detail" if detail else "")).strip())
-    label = parse_month_arg(month_arg.strip(), today_wib()) if month_arg.strip() else None
-    markup = menu.month_keyboard(today_wib(), _cutoff(), prefix="run", detail=detail, current=label, months=False)
-    return text, markup
+def _default_label(card, prefix: str) -> str:
+    cutoff = card.get("cutoff_day") or 13
+    running = cycle_label_for(today_wib(), cutoff)
+    return prev_cycle_label(running) if prefix == "stmt" else running
+
+
+def _render_card(card, prefix: str, label: str, detail: bool = False) -> str:
+    transactions = sheets.read_transactions()
+    title = "Running" if prefix == "run" else "Statement"
+    return render_statement(card, transactions, label, detail=detail, title=title)
+
+
+def _view_markup(card, prefix: str, detail: bool = False, viewing: str | None = None) -> dict:
+    cutoff = card.get("cutoff_day") or 13
+    default = sheets.get_default_card()
+    show_other = default is not None and card["card_id"] == default["card_id"]
+    markup = menu.month_keyboard(
+        today_wib(), cutoff, prefix=prefix, card_id=card["card_id"],
+        detail=detail, current=viewing, count=3, months=(prefix == "stmt"),
+        show_other=show_other,
+    )
+    active = [c for c in sheets.get_cards() if c.get("is_active")]
+    if len(active) > 1:
+        markup["inline_keyboard"].append(
+            [{"text": "🗂 All cards", "callback_data": f"{prefix}:all:{card['card_id']}"}]
+        )
+    return markup
+
+
+def _view_for(card, prefix: str, month_arg: str = "", detail: bool = False):
+    label = parse_month_arg(month_arg.strip(), today_wib()) if month_arg.strip() else _default_label(card, prefix)
+    text = _render_card(card, prefix, label, detail=detail)
+    return text, _view_markup(card, prefix, detail=detail, viewing=label)
+
+
+def _default_card_view(prefix: str):
+    card = sheets.get_default_card()
+    if card is None:
+        return messages.no_card(), menu.reply_keyboard()
+    return _view_for(card, prefix)
 
 
 def _limit_view():
@@ -141,15 +173,17 @@ def _expense_input_reply(text: str):
 
 
 def _statement_month_reply(text: str):
-    if parse_month_arg(text.strip(), today_wib()) is None:
+    clean = " ".join(t for t in text.split() if not t.startswith("@"))
+    if parse_month_arg(clean.strip(), today_wib()) is None:
         return prompts.PROMPT_STATEMENT_MONTH, _retry_markup("Unknown format, try: mar25")
-    return _statement_view(text.strip())
+    return statement.handle(text), menu.reply_keyboard()
 
 
 def _running_month_reply(text: str):
-    if parse_month_arg(text.strip(), today_wib()) is None:
+    clean = " ".join(t for t in text.split() if not t.startswith("@"))
+    if parse_month_arg(clean.strip(), today_wib()) is None:
         return prompts.PROMPT_RUNNING_MONTH, _retry_markup("Unknown format, try: mar25")
-    return _running_view(text.strip())
+    return running.handle(text), menu.reply_keyboard()
 
 
 def _limit_update_reply(text: str):
@@ -160,11 +194,22 @@ def _limit_update_reply(text: str):
     return limit.handle(text), menu.reply_keyboard()
 
 
+def _cards_prompt_reply(fn):
+    """Wrap a cards action reply fn: str → (str, reply keyboard)."""
+    def reply(text: str):
+        return fn(text), menu.reply_keyboard()
+    return reply
+
+
 PROMPT_HANDLERS = {
     prompts.PROMPT_EXPENSE_INPUT: _expense_input_reply,
     prompts.PROMPT_STATEMENT_MONTH: _statement_month_reply,
     prompts.PROMPT_RUNNING_MONTH: _running_month_reply,
     prompts.PROMPT_LIMIT_UPDATE: _limit_update_reply,
+    prompts.PROMPT_CARDS_ADD: _cards_prompt_reply(cards.add_reply),
+    prompts.PROMPT_CARDS_DEFAULT: _cards_prompt_reply(cards.default_reply),
+    prompts.PROMPT_CARDS_LIMIT: _cards_prompt_reply(cards.limit_reply),
+    prompts.PROMPT_CARDS_CUTOFF: _cards_prompt_reply(cards.cutoff_reply),
 }
 
 
@@ -175,11 +220,15 @@ def _menu_flow(cmd: str):
     if cmd == "expense":
         return _expense_entry()
     if cmd == "statement":
-        return _statement_view()
+        return _default_card_view("stmt")
     if cmd == "running":
-        return _running_view()
+        return _default_card_view("run")
     if cmd == "limit":
         return _limit_view()
+    if cmd == "cards":
+        return cards.view(), menu.cards_action_keyboard()
+    if cmd == "summary":
+        return summary.handle(), menu.reply_keyboard()
     return help_cmd.handle(""), menu.reply_keyboard()  # help
 
 
@@ -191,29 +240,85 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
         _expense_callback(action, chat_id, message_id)
         return
 
+    if prefix == "cards":
+        prompt = {
+            "add": prompts.PROMPT_CARDS_ADD,
+            "default": prompts.PROMPT_CARDS_DEFAULT,
+            "limit": prompts.PROMPT_CARDS_LIMIT,
+            "cutoff": prompts.PROMPT_CARDS_CUTOFF,
+        }.get(action)
+        if prompt:
+            send_telegram(chat_id, prompt, reply_markup=_force_reply_markup())
+        return
+
     if prefix == "limit":
         if action == "edit":
             send_telegram(chat_id, prompts.PROMPT_LIMIT_UPDATE, reply_markup=_force_reply_markup())
         return
 
-    if prefix in ("stmt", "run"):
-        if action == "other":
-            prompt = prompts.PROMPT_STATEMENT_MONTH if prefix == "stmt" else prompts.PROMPT_RUNNING_MONTH
-            send_telegram(chat_id, prompt, reply_markup=_force_reply_markup())
+    # note: stmt/run callbacks are routed via _month_callback in _handle_callback.
+
+
+def _month_callback(parts: list[str], chat_id, message_id) -> None:
+    """stmt/run inline callbacks (MVP2 card-aware tokens)."""
+    prefix = parts[0]
+    kind = parts[1] if len(parts) > 1 else ""
+
+    if kind == "all" and len(parts) >= 3:
+        viewing = int(parts[2])
+        default = sheets.get_default_card()
+        cards = [c for c in sheets.get_cards() if c.get("is_active")]
+        rows = []
+        for c in cards:
+            label = f"💳 {c['card_name']}"
+            if default is not None and c["card_id"] == default["card_id"]:
+                label += " ⭐"
+            if c["card_id"] == viewing:
+                label += " (viewing)"
+            rows.append([{"text": label, "callback_data": f"{prefix}:view:{c['card_id']}"}])
+        rows.append([{"text": "↩️ Back", "callback_data": f"{prefix}:back:{viewing}"}])
+        title = "Statement" if prefix == "stmt" else "Running"
+        edit_telegram(chat_id, message_id, f"{title} — pick a card:", reply_markup={"inline_keyboard": rows})
+        return
+
+    if kind in ("view", "back") and len(parts) >= 3:
+        try:
+            card = sheets.get_card(int(parts[2]))
+        except (TypeError, ValueError):
             return
-
-        if action in ("detail_on", "detail_off"):
-            detail = action == "detail_on"
-            month = token
-        else:
-            # month tap: action is the token (e.g. "nov25")
-            detail = False
-            month = action
-
-        view = _statement_view if prefix == "stmt" else _running_view
-        text, markup = view(month, detail=detail)
+        if card is None:
+            return
+        text, markup = _view_for(card, prefix)
         edit_telegram(chat_id, message_id, text, reply_markup=markup)
         return
+
+    if kind == "other" and len(parts) >= 3:
+        # Other-month typing targets the default card only (stateless rule).
+        default = sheets.get_default_card()
+        try:
+            card = sheets.get_card(int(parts[2]))
+        except (TypeError, ValueError):
+            return
+        if card is None or default is None or card["card_id"] != default["card_id"]:
+            return
+        prompt = prompts.PROMPT_STATEMENT_MONTH if prefix == "stmt" else prompts.PROMPT_RUNNING_MONTH
+        send_telegram(chat_id, prompt, reply_markup=_force_reply_markup())
+        return
+
+    # month tap / detail toggle: [prefix, card_id, month, (detail_*)].
+    try:
+        cid = int(parts[1])
+    except (TypeError, ValueError, IndexError):
+        return
+    card = sheets.get_card(cid)
+    if card is None or len(parts) < 3:
+        return
+    label = parse_month_arg(parts[2], today_wib())
+    if label is None:
+        return
+    detail = len(parts) >= 4 and parts[3] == "detail_on"
+    text = _render_card(card, prefix, label, detail=detail)
+    edit_telegram(chat_id, message_id, text, reply_markup=_view_markup(card, prefix, detail=detail, viewing=label))
 
 
 def _handle_callback(callback: dict):
@@ -231,6 +336,9 @@ def _handle_callback(callback: dict):
 
     parts = data_s.split(":")
     prefix = parts[0] if parts else ""
+    if prefix in ("stmt", "run") and len(parts) >= 2:
+        _month_callback(parts, chat_id, message_id)
+        return
     action = parts[1] if len(parts) > 1 else ""
     token = parts[2] if len(parts) > 2 else ""
     _callback_dispatch(prefix, action, token, chat_id, message_id)

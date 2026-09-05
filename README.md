@@ -2,7 +2,8 @@
 
 A Telegram bot for recording **credit card spending** to Google Sheets + tracking utilization per billing cycle.
 
-- Personal use: 1 user, 1 card (MVP1). Schema is already multi-card ready (`Cards` table) → MVP2 just adds rows.
+- Personal use: 1 user. One card or many — the schema is multi-card ready
+  (`Cards` table): adding a card = adding a row, no code/schema migration.
 - Backend: **Google Sheets** (gspread), deployed on **Vercel** serverless (mode **webhook**, not polling).
 - Timezone: `Asia/Jakarta` (WIB). Messages use `parse_mode="HTML"`, user input is auto-escaped.
 
@@ -16,6 +17,8 @@ Everything is **button-first**. A persistent reply-keyboard menu sits at the bot
 | 📄 Statement | Latest issued statement + utilization |
 | 📊 Running | Current (running) cycle + utilization |
 | 🎯 Limit | View / update card limit |
+| 🗂 Cards | List / manage cards (add, default, limit, cutoff) |
+| 📊 Summary | All cards' running-cycle utilization at a glance |
 | ℹ️ Help | Menu + format help |
 
 Free-text input is still typed (via ForceReply) for the two actions that need it: **Expense** (amount + description) and **Limit update** (new limit).
@@ -68,6 +71,12 @@ card-cycle/
 └── tests/                 ← unit tests (prompts, menu, routing, flows)
 ```
 
-## Future (MVP2)
+## Multi-card
 
-Multi-card (`@name` selector, `/summary`), payment tracking (`Payments` sheet), H-3 reminder (Vercel Cron + `due_day` + `ReminderLog`), categories, edit/delete transactions.
+The app supports **multiple credit cards**: `@name` selector, `🗂 Cards`
+(add / default / limit / cutoff), `📊 Summary`, a per-card month picker with an
+All-cards switcher, and a sticky expense card (chips → remembered card →
+`Recording to …`). One card is the default (⭐); actions without `@name` use
+it. Full usage is in `docs/USAGE.md`.
+
+Still future: payment tracking (`Payments` sheet), H-3 reminder (Vercel Cron + `due_day` + `ReminderLog`), categories, edit/delete transactions.
