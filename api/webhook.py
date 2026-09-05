@@ -7,7 +7,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 
 from api import auth, config
-from api.commands import cards, expense, help as help_cmd, limit, running, statement, summary
+from api.commands import cards, expense, help as help_cmd, running, statement, summary
 from api.telegram import answer_callback, edit_telegram, send_telegram
 from core import menu, messages, prompts, sheets
 from core.formatter import parse_month_arg, today_wib
@@ -160,10 +160,6 @@ def _default_card_view(prefix: str):
     return _view_for(card, prefix)
 
 
-def _limit_view():
-    return limit.handle(""), menu.limit_keyboard()
-
-
 # --- ForceReply prompt reply handlers ---
 
 def _expense_input_reply(text: str):
@@ -186,14 +182,6 @@ def _running_month_reply(text: str):
     return running.handle(text), menu.reply_keyboard()
 
 
-def _limit_update_reply(text: str):
-    try:
-        parse_amount(text.strip())
-    except ValueError:
-        return prompts.PROMPT_LIMIT_UPDATE, _retry_markup("Invalid number, try: 15000000")
-    return limit.handle(text), menu.reply_keyboard()
-
-
 def _cards_prompt_reply(fn):
     """Wrap a cards action reply fn: str → (str, reply keyboard)."""
     def reply(text: str):
@@ -205,9 +193,7 @@ PROMPT_HANDLERS = {
     prompts.PROMPT_EXPENSE_INPUT: _expense_input_reply,
     prompts.PROMPT_STATEMENT_MONTH: _statement_month_reply,
     prompts.PROMPT_RUNNING_MONTH: _running_month_reply,
-    prompts.PROMPT_LIMIT_UPDATE: _limit_update_reply,
     prompts.PROMPT_CARDS_ADD: _cards_prompt_reply(cards.add_reply),
-    prompts.PROMPT_CARDS_DEFAULT: _cards_prompt_reply(cards.default_reply),
     prompts.PROMPT_CARDS_LIMIT: _cards_prompt_reply(cards.limit_reply),
     prompts.PROMPT_CARDS_CUTOFF: _cards_prompt_reply(cards.cutoff_reply),
 }
@@ -223,10 +209,9 @@ def _menu_flow(cmd: str):
         return _default_card_view("stmt")
     if cmd == "running":
         return _default_card_view("run")
-    if cmd == "limit":
-        return _limit_view()
     if cmd == "cards":
-        return cards.view(), menu.cards_action_keyboard()
+        default = sheets.get_default_card()
+        return cards.view(), menu.cards_view_keyboard(sheets.get_cards(), default)
     if cmd == "summary":
         return summary.handle(), menu.reply_keyboard()
     return help_cmd.handle(""), menu.reply_keyboard()  # help
@@ -241,19 +226,34 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
         return
 
     if prefix == "cards":
-        prompt = {
-            "add": prompts.PROMPT_CARDS_ADD,
-            "default": prompts.PROMPT_CARDS_DEFAULT,
-            "limit": prompts.PROMPT_CARDS_LIMIT,
-            "cutoff": prompts.PROMPT_CARDS_CUTOFF,
-        }.get(action)
-        if prompt:
-            send_telegram(chat_id, prompt, reply_markup=_force_reply_markup())
-        return
-
-    if prefix == "limit":
-        if action == "edit":
-            send_telegram(chat_id, prompts.PROMPT_LIMIT_UPDATE, reply_markup=_force_reply_markup())
+        if action == "add":
+            send_telegram(chat_id, prompts.PROMPT_CARDS_ADD, reply_markup=_force_reply_markup())
+            return
+        if action == "main":
+            try:
+                card_id = int(token)
+            except (TypeError, ValueError):
+                return
+            reply = cards.set_main(card_id)
+            default = sheets.get_default_card()
+            edit_telegram(chat_id, message_id, reply, reply_markup=menu.cards_view_keyboard(sheets.get_cards(), default))
+            return
+        if action in ("lmt", "cut"):
+            try:
+                card_id = int(token)
+            except (TypeError, ValueError):
+                return
+            card = sheets.get_card(card_id)
+            if card is None or not card.get("is_active"):
+                return
+            sheets.upsert_config(config.CONFIG_CARDS_EDIT_CARD_ID, str(card_id))
+            if action == "lmt":
+                prompt = prompts.PROMPT_CARDS_LIMIT
+                hint = f"New limit for {card.get('card_name')} — type amount"
+            else:
+                prompt = prompts.PROMPT_CARDS_CUTOFF
+                hint = f"New cutoff day for {card.get('card_name')} — type 1–28"
+            send_telegram(chat_id, prompt, reply_markup=_retry_markup(hint))
         return
 
     # note: stmt/run callbacks are routed via _month_callback in _handle_callback.

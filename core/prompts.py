@@ -21,28 +21,22 @@ PROMPT_STATEMENT_MONTH = "Type a month, e.g. mar25 or november"
 
 PROMPT_RUNNING_MONTH = "Type a running month, e.g. mar25 or november"
 
-PROMPT_LIMIT_UPDATE = "Type the new limit, e.g. 15000000"
-
 PROMPT_CARDS_ADD = (
     "Type the new card. Format:\n"
     "Tokopedia Card 8000000 cutoff 27\n"
     "(name + limit required; cutoff optional, default 13)"
 )
 
-PROMPT_CARDS_DEFAULT = "Type the card to make default:\n@tokopedia"
+PROMPT_CARDS_LIMIT = "Type the new limit, e.g. 8000000"
 
-PROMPT_CARDS_LIMIT = "Type new limit:\n@tokopedia 8000000 (no @ = default card)"
-
-PROMPT_CARDS_CUTOFF = "Type new cutoff day:\n@tokopedia 27 (no @ = default card)"
+PROMPT_CARDS_CUTOFF = "Type the new cutoff day, e.g. 27"
 
 # Order matters for routing: check the most specific prompts first.
 ALL_PROMPTS = (
     PROMPT_EXPENSE_INPUT,
     PROMPT_STATEMENT_MONTH,
     PROMPT_RUNNING_MONTH,
-    PROMPT_LIMIT_UPDATE,
     PROMPT_CARDS_ADD,
-    PROMPT_CARDS_DEFAULT,
     PROMPT_CARDS_LIMIT,
     PROMPT_CARDS_CUTOFF,
 )

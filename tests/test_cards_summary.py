@@ -71,47 +71,67 @@ def test_cards_add_duplicate_name_rejected(monkeypatch):
     assert "already exists" in out
 
 
-# --- default / limit / cutoff actions ---
+# --- default (tap) / limit / cutoff (value-only via pending target) ---
 
-def test_cards_default_reply(monkeypatch):
+def _patch_actions(monkeypatch, config=None):
+    _patch(monkeypatch, default=BNI, config=config or {})
+    upserts = []
+    monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: upserts.append((k, v)))
+    return upserts
+
+
+def test_cards_set_main(monkeypatch):
     _patch(monkeypatch, default=BNI)
     calls = []
     monkeypatch.setattr("core.sheets.set_config", lambda k, v: calls.append((k, v)))
-    out = cards.default_reply("@tokopedia")
+    out = cards.set_main(2)
     assert calls == [("default_card_id", "2")]
     assert "Default card: Tokopedia Card" in out
 
 
-def test_cards_limit_reply(monkeypatch):
-    _patch(monkeypatch, default=BNI)
+def test_cards_limit_value_only_uses_pending_card(monkeypatch):
+    upserts = _patch_actions(monkeypatch, config={"cards.edit_card_id": "2"})
     calls = []
     monkeypatch.setattr("core.sheets.update_card_limit", lambda cid, amt: calls.append((cid, amt)))
-    out = cards.limit_reply("@tokopedia 9000000")
+    out = cards.limit_reply("9000000")
     assert calls == [(2, 9000000)]
     assert "Tokopedia Card" in out
+    assert upserts and upserts[-1] == ("cards.edit_card_id", "")  # cleared
 
 
-def test_cards_limit_reply_default_when_no_at(monkeypatch):
-    _patch(monkeypatch, default=BNI)
+def test_cards_limit_without_pending_uses_default(monkeypatch):
+    upserts = _patch_actions(monkeypatch)
     calls = []
     monkeypatch.setattr("core.sheets.update_card_limit", lambda cid, amt: calls.append((cid, amt)))
-    cards.limit_reply("12000000")
+    out = cards.limit_reply("12000000")
     assert calls == [(1, 12000000)]
+    assert "BNI Mastercard" in out
 
 
-def test_cards_cutoff_reply(monkeypatch):
-    _patch(monkeypatch, default=BNI)
+def test_cards_limit_at_still_overrides_pending(monkeypatch):
+    upserts = _patch_actions(monkeypatch, config={"cards.edit_card_id": "2"})
+    calls = []
+    monkeypatch.setattr("core.sheets.update_card_limit", lambda cid, amt: calls.append((cid, amt)))
+    out = cards.limit_reply("@bni 15000000")
+    assert calls == [(1, 15000000)]
+    assert "BNI Mastercard" in out
+
+
+def test_cards_cutoff_value_only_uses_pending_card(monkeypatch):
+    upserts = _patch_actions(monkeypatch, config={"cards.edit_card_id": "2"})
     calls = []
     monkeypatch.setattr("core.sheets.update_card_cutoff", lambda cid, day: calls.append((cid, day)))
-    out = cards.cutoff_reply("@tokopedia 5")
+    out = cards.cutoff_reply("5")
     assert calls == [(2, 5)]
     assert "Tokopedia Card" in out
+    assert upserts and upserts[-1] == ("cards.edit_card_id", "")
 
 
-def test_cards_cutoff_reply_invalid_day(monkeypatch):
-    _patch(monkeypatch, default=BNI)
-    out = cards.cutoff_reply("@tokopedia 40")
+def test_cards_cutoff_invalid_day_clears_pending(monkeypatch):
+    upserts = _patch_actions(monkeypatch, config={"cards.edit_card_id": "2"})
+    out = cards.cutoff_reply("40")
     assert "cutoff must be 1–28" in out
+    assert upserts and upserts[-1] == ("cards.edit_card_id", "")
 
 
 # --- summary ---

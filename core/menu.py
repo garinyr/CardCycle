@@ -11,7 +11,6 @@ from core.formatter import DIVIDER, block, bold
 BTN_EXPENSE = "💳 Expense"
 BTN_STATEMENT = "📄 Statement"
 BTN_RUNNING = "📊 Running"
-BTN_LIMIT = "🎯 Limit"
 BTN_CARDS = "🗂 Cards"
 BTN_SUMMARY = "📊 Summary"
 BTN_HELP = "ℹ️ Help"
@@ -19,16 +18,14 @@ BTN_HELP = "ℹ️ Help"
 # 3×2 grid, Help last.
 MENU = [
     [BTN_EXPENSE, BTN_STATEMENT],
-    [BTN_RUNNING, BTN_LIMIT],
-    [BTN_CARDS, BTN_SUMMARY],
-    [BTN_HELP],
+    [BTN_RUNNING, BTN_CARDS],
+    [BTN_SUMMARY, BTN_HELP],
 ]
 
 _LABEL_TO_CMD = {
     BTN_EXPENSE: "expense",
     BTN_STATEMENT: "statement",
     BTN_RUNNING: "running",
-    BTN_LIMIT: "limit",
     BTN_CARDS: "cards",
     BTN_SUMMARY: "summary",
     BTN_HELP: "help",
@@ -63,8 +60,7 @@ def menu_text() -> str:
         f"{BTN_EXPENSE} — Record spending (needs typing)",
         f"{BTN_STATEMENT} — Latest issued statement + utilization",
         f"{BTN_RUNNING} — Current (running) cycle + utilization",
-        f"{BTN_LIMIT} — View / update card limit",
-        f"{BTN_CARDS} — List / manage your cards",
+        f"{BTN_CARDS} — List / manage your cards (limit, cutoff, default)",
         f"{BTN_SUMMARY} — All cards' utilization at a glance",
         f"{BTN_HELP} — This help",
     )
@@ -129,23 +125,24 @@ def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", card_id: int = 
     return {"inline_keyboard": rows}
 
 
-def limit_keyboard() -> dict:
-    """Inline keyboard for the limit view — edit button."""
-    return {"inline_keyboard": [[{"text": "✏️ Update Limit", "callback_data": "limit:edit"}]]}
-
-
 # --- expense card picker (MVP2 Option D) ---
 
-def cards_action_keyboard() -> dict:
-    """Inline action row under the Cards view (MVP2)."""
-    return {
-        "inline_keyboard": [[
-            {"text": "➕ Add", "callback_data": "cards:add"},
-            {"text": "⭐ Default", "callback_data": "cards:default"},
-            {"text": "🎯 Limit", "callback_data": "cards:limit"},
-            {"text": "📅 Cutoff", "callback_data": "cards:cutoff"},
-        ]]
-    }
+def cards_view_keyboard(cards: list[dict], default_card: dict | None = None) -> dict:
+    """Cards view inline rows: per-card actions + Add (MVP2 refinement).
+
+    Each row: ⭐ Make main (non-default) · 🎯 Limit · 📅 Cutoff. The card is
+    chosen by the tap — later typing asks for the value only (no @name).
+    """
+    default_id = default_card["card_id"] if default_card else None
+    rows = []
+    for c in cards:
+        actions = [{"text": "🎯 Limit", "callback_data": f"cards:lmt:{c['card_id']}"}]
+        if c.get("is_active") and c["card_id"] != default_id:
+            actions.insert(0, {"text": "⭐ Make main", "callback_data": f"cards:main:{c['card_id']}"})
+        actions.append({"text": "📅 Cutoff", "callback_data": f"cards:cut:{c['card_id']}"})
+        rows.append(actions)
+    rows.append([{"text": "➕ Add card", "callback_data": "cards:add"}])
+    return {"inline_keyboard": rows}
 
 
 def expense_choice_keyboard(default_card: dict, sticky_card: dict | None) -> dict:

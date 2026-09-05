@@ -1,36 +1,47 @@
-"""api/commands/cards.py — card management (MVP2 P3).
+"""api/commands/cards.py — card management (MVP2, choose-card-first flows).
 
-`view()` renders the card list (used by the 🗂 Cards button). The action
-flows (add / default / limit / cutoff) are entered from the inline action row
-(`cards:<action>` callbacks in the webhook) which sends the matching prompt;
-the typed reply is routed by exact-match to the `*_reply` functions below.
-Target cards inside a reply are named with `@name` (default card when absent),
-keeping everything stateless.
+`view()` renders the card list (used by the 🗂 Cards button). The per-card
+actions are entered from the inline rows under the view:
+
+- `cards:main:<card_id>` — make a card the default (pure tap, no typing).
+- `cards:lmt:<card_id>` / `cards:cut:<card_id>` — choose the card by tap, then
+  the bot stores it as the pending edit target (`Config.cards.edit_card_id`)
+  and asks for the **value only**. `limit_reply`/`cutoff_reply` read the
+  pending target, clear it after use, and keep `@name` only as an optional
+  one-shot override.
+- `cards:add` — still typed (`Name amount [cutoff N]`), a new card has no row.
+
+Everything stays stateless-safe: the chosen card travels through the pending
+Config key, never through memory.
 """
 
 import re
 
 from core import cardref, messages, parser, sheets
 from core.formatter import bold, esc, rupiah
+from api.config import CONFIG_CARDS_EDIT_CARD_ID
 
 _CUTOFF_RE = re.compile(r"(?i)cutoff\s+(\d{1,2})")
 
 
-def _resolve_named_or_default(text: str) -> dict | None:
-    """Card named by `@name` (active-only); falls back to the default card."""
-    refs = cardref.extract_at_refs(text)
-    cards = sheets.get_cards() if refs else None
-    card, error = cardref.command_card(text, cards, sheets.get_default_card())
-    if error:
-        raise ValueError(error)
-    return card
+def _pending_card_id() -> int | None:
+    raw = (sheets.get_config() or {}).get(CONFIG_CARDS_EDIT_CARD_ID, "")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _clear_pending() -> None:
+    sheets.upsert_config(CONFIG_CARDS_EDIT_CARD_ID, "")
 
 
 def view() -> str:
     """Card list + flags. Empty list → error prompting to Add."""
     cards = sheets.get_cards()
     if not cards:
-        return messages.err("No cards yet — tap ➕ Add to create one.")
+        return messages.err("No cards yet — tap ➕ Add card to create one.")
     default = sheets.get_default_card()
     default_id = default["card_id"] if default else None
 
@@ -48,6 +59,15 @@ def view() -> str:
         suffix = f"  ({', '.join(flags)})" if flags else ""
         lines.append(f"{c['card_id']}. {name} — {detail}{suffix}")
     return messages.info("Your cards", *lines)
+
+
+def set_main(card_id: int) -> str:
+    """Make `card_id` the default card (pure-tap action)."""
+    card = sheets.get_card(card_id)
+    if card is None:
+        return messages.err("Card not found.")
+    sheets.set_config("default_card_id", str(card_id))
+    return messages.ok(f"Default card: {card.get('card_name')}")
 
 
 # --- add ---
@@ -88,7 +108,7 @@ def _parse_add(text: str) -> tuple[str, int, int]:
     return name, amount, cutoff
 
 
-def add_reply(text: str):
+def add_reply(text: str) -> str:
     try:
         name, amount, cutoff = _parse_add(text)
     except ValueError as e:
@@ -101,50 +121,44 @@ def add_reply(text: str):
     )
 
 
-# --- default ---
+# --- limit / cutoff (value only; card from pending target or @name) ---
 
-def _resolve_exactly(text: str) -> dict:
-    """@name ref, or a bare name matched exactly/prefix/partial on active cards."""
+def _target_for_value(text: str) -> dict:
+    """Card to edit: optional @name wins; else pending target; else default."""
     refs = cardref.extract_at_refs(text)
-    cards = sheets.get_cards()
     if refs:
-        card, error = cardref.command_card(text, cards, None)
+        card, error = cardref.command_card(text, sheets.get_cards(), sheets.get_default_card())
         if error:
             raise ValueError(error)
         return card
-    candidates = cardref.find_candidates(text.strip().lower(), cards)
-    if len(candidates) == 1:
-        return candidates[0]
-    raise ValueError("Unknown or ambiguous card — type @name (e.g. @bni).")
+    pending = _pending_card_id()
+    if pending is not None:
+        card = sheets.get_card(pending)
+        if card is not None and card.get("is_active"):
+            return card
+    card = sheets.get_default_card()
+    if card is None:
+        raise ValueError("No card set up yet.")
+    return card
 
 
-def default_reply(text: str):
-    try:
-        card = _resolve_exactly(text)
-    except ValueError as e:
-        return messages.err(str(e))
-    sheets.set_config("default_card_id", str(card["card_id"]))
-    return messages.ok(f"Default card: {card.get('card_name')}")
-
-
-# --- limit / cutoff (shared target + value) ---
-
-def _limit_target(text: str):
+def _parse_limit(text: str):
     clean = cardref.strip_card_refs(text).strip()
     if not clean:
         raise ValueError("amount is missing")
-    card = _resolve_named_or_default(text)
     amount = parser.parse_amount(clean)
     if amount <= 0:
         raise ValueError("limit must be a positive number")
-    return card, amount
+    return _target_for_value(text), amount
 
 
-def limit_reply(text: str):
+def limit_reply(text: str) -> str:
     try:
-        card, amount = _limit_target(text)
+        card, amount = _parse_limit(text)
     except ValueError as e:
+        _clear_pending()
         return messages.err(str(e))
+    _clear_pending()
     old = card.get("card_limit")
     sheets.update_card_limit(card["card_id"], amount)
     name = card.get("card_name") or "card"
@@ -154,7 +168,7 @@ def limit_reply(text: str):
     )
 
 
-def _cutoff_target(text: str):
+def _parse_cutoff(text: str):
     clean = cardref.strip_card_refs(text).strip()
     if not clean:
         raise ValueError("day is missing")
@@ -164,15 +178,16 @@ def _cutoff_target(text: str):
         raise ValueError(f"invalid day: {clean}")
     if not 1 <= day <= 28:
         raise ValueError("cutoff must be 1–28")
-    card = _resolve_named_or_default(text)
-    return card, day
+    return _target_for_value(text), day
 
 
-def cutoff_reply(text: str):
+def cutoff_reply(text: str) -> str:
     try:
-        card, day = _cutoff_target(text)
+        card, day = _parse_cutoff(text)
     except ValueError as e:
+        _clear_pending()
         return messages.err(str(e))
+    _clear_pending()
     sheets.update_card_cutoff(card["card_id"], day)
     name = card.get("card_name") or "card"
     return messages.ok(f"Cutoff {name} updated", f"cutoff day → {day}")

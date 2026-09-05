@@ -4,7 +4,6 @@ Proves two-card isolation: each command renders/updates only the targeted card,
 and the no-`@` path keeps MVP1 behavior (default card, lazy sheets calls).
 """
 
-import api.commands.limit as limit
 import api.commands.running as running
 import api.commands.statement as statement
 from core import sheets
@@ -54,32 +53,6 @@ def test_running_targets_card_via_at(monkeypatch):
     out = running.handle("@tokopedia sep26")
     assert "Running" in out and "Tokopedia Card" in out
     assert "Rp 200.000" in out and "Rp 100.000" not in out
-
-
-# --- limit: view + update on targeted card ---
-
-def test_limit_view_targeted_card(monkeypatch):
-    _patch(monkeypatch, cards=[BNI, TOKOPEDIA], default=BNI)
-    out = limit.handle("@tokopedia")
-    assert "Limit Tokopedia Card" in out and "Rp 8.000.000" in out
-
-
-def test_limit_update_targeted_card(monkeypatch):
-    _patch(monkeypatch, cards=[BNI, TOKOPEDIA], default=BNI)
-    calls = []
-    monkeypatch.setattr(sheets, "update_card_limit", lambda cid, amt: calls.append((cid, amt)))
-    out = limit.handle("@tokopedia 9000000")
-    assert calls == [(2, 9000000)]
-    assert "Limit Tokopedia Card updated" in out
-
-
-def test_limit_no_at_uses_default_card(monkeypatch):
-    _patch(monkeypatch, cards=[BNI, TOKOPEDIA], default=BNI)
-    calls = []
-    monkeypatch.setattr(sheets, "update_card_limit", lambda cid, amt: calls.append((cid, amt)))
-    out = limit.handle("12000000")
-    assert calls == [(1, 12000000)]
-    assert "BNI Mastercard" in out
 
 
 # --- error paths ---

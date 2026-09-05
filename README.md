@@ -16,12 +16,14 @@ Everything is **button-first**. A persistent reply-keyboard menu sits at the bot
 | 💳 Expense | Record spending (shows format — needs typing) |
 | 📄 Statement | Latest issued statement + utilization |
 | 📊 Running | Current (running) cycle + utilization |
-| 🎯 Limit | View / update card limit |
-| 🗂 Cards | List / manage cards (add, default, limit, cutoff) |
+| 🗂 Cards | List / manage cards (default, limit, cutoff) |
 | 📊 Summary | All cards' running-cycle utilization at a glance |
 | ℹ️ Help | Menu + format help |
+| ℹ️ Help | Menu + format help |
 
-Free-text input is still typed (via ForceReply) for the two actions that need it: **Expense** (amount + description) and **Limit update** (new limit).
+Free-text input is still typed (via ForceReply) for the actions that need it:
+**Expense** (amount + description), **adding a card**, and a card's **Limit**
+and **Cutoff** values (the card is chosen by button first).
 
 ## Documentation
 
@@ -53,10 +55,11 @@ card-cycle/
 │   ├── telegram.py        ← sendMessage client (parse_mode=HTML)
 │   └── commands/          ← feature handlers (button flows)
 │       ├── help.py        ← menu/help text
-│       ├── expense.py       ← expense (single + batch)
-│       ├── statement.py     ← statement (frozen cycle + detail)
-│       ├── running.py       ← running (current cycle)
-│       └── limit.py       ← limit (view / update)
+│       ├── expense.py     ← expense (single + batch)
+│       ├── statement.py   ← statement (frozen cycle + detail)
+│       ├── running.py     ← running (current cycle)
+│       ├── cards.py       ← cards list + manage (default/limit/cutoff)
+│       └── summary.py     ← all-cards utilization glance
 ├── core/                  ← pure logic + data access
 │   ├── cycle.py           ← cutoff logic, cycle_label on-read
 │   ├── parser.py          ← parse expense (date, amount, description, batch)
@@ -71,12 +74,6 @@ card-cycle/
 └── tests/                 ← unit tests (prompts, menu, routing, flows)
 ```
 
-## Multi-card
-
-The app supports **multiple credit cards**: `@name` selector, `🗂 Cards`
-(add / default / limit / cutoff), `📊 Summary`, a per-card month picker with an
-All-cards switcher, and a sticky expense card (chips → remembered card →
-`Recording to …`). One card is the default (⭐); actions without `@name` use
-it. Full usage is in `docs/USAGE.md`.
+## Roadmap
 
 Still future: payment tracking (`Payments` sheet), H-3 reminder (Vercel Cron + `due_day` + `ReminderLog`), categories, edit/delete transactions.

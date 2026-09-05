@@ -11,7 +11,6 @@ def test_cmd_for_label_expected_commands():
     assert menu.cmd_for_label("💳 Expense") == "expense"
     assert menu.cmd_for_label("📄 Statement") == "statement"
     assert menu.cmd_for_label("📊 Running") == "running"
-    assert menu.cmd_for_label("🎯 Limit") == "limit"
     assert menu.cmd_for_label("🗂 Cards") == "cards"
     assert menu.cmd_for_label("📊 Summary") == "summary"
     assert menu.cmd_for_label("ℹ️ Help") == "help"
@@ -37,4 +36,5 @@ def test_reply_keyboard_shape():
 def test_menu_text_mentions_buttons():
     text = menu.menu_text()
     assert "💳 Expense" in text
-    assert "🎯 Limit" in text
+    assert "🗂 Cards" in text
+    assert "📊 Summary" in text

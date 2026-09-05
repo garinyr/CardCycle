@@ -8,9 +8,8 @@ the button menu at the bottom of the chat — no commands to remember.
 
 ```
 💳 Expense   📄 Statement
-📊 Running   🎯 Limit
-🗂 Cards     📊 Summary
-ℹ️ Help
+📊 Running   🗂 Cards
+📊 Summary   ℹ️ Help
 ```
 
 | Button | What it does |
@@ -18,10 +17,12 @@ the button menu at the bottom of the chat — no commands to remember.
 | 💳 Expense | Record a purchase (you type the amount + note) |
 | 📄 Statement | See a finished monthly bill (the one that was already issued) |
 | 📊 Running | See the bill that is still building up this month |
-| 🎯 Limit | See / change your card's limit |
 | 🗂 Cards | See all your cards; add one; change default/limit/cutoff |
 | 📊 Summary | One line per card: how much used, in one view |
 | ℹ️ Help | Re-shows this menu |
+
+A card's **limit** is changed inside Cards (tap the card's Limit button) —
+no separate button needed.
 
 The menu stays on screen after every reply. If you have more than one card,
 the ⭐ marks your **main (default) card** — the one used when you don't say
@@ -89,10 +90,11 @@ shown under Statement; Running has just the Details toggle).
 
 ---
 
-## Card limit — 🎯 Limit
+## Card limit
 
-Tap **Limit** to see your card's limit. To change it, tap the button and type
-the new number. The bot shows the old → new value.
+Each card's current limit is shown in its Cards row. To change it, open
+**Cards** and tap the card's **Limit** button, then type the new number. The
+bot shows the old → new value.
 
 ---
 
@@ -117,16 +119,23 @@ If no limit is set yet, the bot says "Limit not set" instead of guessing.
 ## Managing your cards — 🗂 Cards
 
 **Cards** lists every card (⭐ = the main/default one; "inactive" = archived).
-Below the list are four actions:
+Under each card are its own buttons, so you never type a card name:
 
-- **Add** — type the new card's name, its limit, and (optional) cutoff day:
-  ```
-  Tokopedia Card 8000000 cutoff 27
-  ```
-  The *cutoff day* is the day each month when the bill is cut (usually 13).
-- **Default** — type which card should be the main one: `@tokopedia`
-- **Limit** — change a card's limit: `@tokopedia 8000000` (no name = main card)
-- **Cutoff** — change the cutoff day: `@tokopedia 27`
+- **⭐ Make main** (shown on non-default cards) — one tap, no typing.
+- **🎯 Limit** — the bot asks only for the new number: `8000000`.
+- **📅 Cutoff** — the bot asks only for the new day: `27`.
+
+The chosen card is always shown while you type (e.g. `New limit for BNI
+Mastercard`), and the change is confirmed with the card's name — wrong card
+becomes very hard.
+
+To add a new card (it has no row yet), tap **➕ Add card** and type:
+
+```
+Tokopedia Card 8000000 cutoff 27
+```
+
+The *cutoff day* is the day each month when the bill is cut (usually 13).
 
 When you write a card's name, start it with `@` and it does not need to be the
 full name — `@bni` finds "BNI Mastercard". If the bot can't tell which card you
@@ -153,7 +162,9 @@ Tokopedia Card: Rp 5.200.000 / Rp 8.000.000 (65.0%  🟠 High)
   the current year is used.
 - **Months**, when asked, accept `feb`, `Feb`, `FEBRUARY`, `nov25` (Nov 2025).
 - **Amounts**: whole numbers, thousands without dots: `150000`.
-- **Card names**: type `@` + part of the name, e.g. `@tokped`.
+- **Card names**: you only type a card name when a text needs it — e.g.
+  viewing an older month of another card: `@tokopedia sep26`. Default/Limit/
+  Cutoff are button flows now (no card-name typing).
 - To look at another card's older bill while typing, include the card before
   the month: `@tokopedia sep26`.
 
