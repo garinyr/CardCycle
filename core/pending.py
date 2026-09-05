@@ -26,6 +26,9 @@ from api.config import (
     CONFIG_PENDING_TS,
 )
 from core import sheets
+from core.logger import get_logger, log_event
+
+log = get_logger("pending")
 
 TZ = ZoneInfo("Asia/Jakarta")
 PENDING_TTL_S = 300  # D2: 5 minutes
@@ -53,6 +56,7 @@ def set_pending(action: str, card_id: int | None = None) -> None:
     _set(CONFIG_PENDING_ACTION, action)
     _set(CONFIG_PENDING_TS, _now().isoformat(timespec="seconds"))
     _set(CONFIG_CARDS_EDIT_CARD_ID, str(card_id) if card_id is not None else "")
+    log_event(log, "pending_set", action=action, card=card_id)
 
 
 def clear_pending() -> None:
@@ -61,6 +65,7 @@ def clear_pending() -> None:
     cfg = sheets.get_config() or {}
     if not any(str(cfg.get(k, "")).strip() for k in _ALL_KEYS):
         return
+    log_event(log, "pending_clear")
     for key in _ALL_KEYS:
         _set(key, "")
 
@@ -82,6 +87,7 @@ def pending() -> tuple[str, int | None] | None:
         clear_pending()
         return None
     if _now() - ts > timedelta(seconds=PENDING_TTL_S):
+        log_event(log, "pending_stale", action=action, ttl_s=PENDING_TTL_S)
         clear_pending()
         return None
     raw_card = str(cfg.get(CONFIG_CARDS_EDIT_CARD_ID, "")).strip()

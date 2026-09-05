@@ -249,6 +249,7 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
     if prefix == "cards":
         if action == "add":
             pending_state.set_pending("add")
+            log_event(log, "cards_pending_set", action="add")
             send_telegram(chat_id, prompts.PROMPT_CARDS_ADD, reply_markup=menu.pending_cancel_keyboard())
             return
         if action == "list":
@@ -297,6 +298,7 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
             if card is None or not card.get("is_active"):
                 return
             pending_state.set_pending(action, card_id)
+            log_event(log, "cards_pending_set", action=action, card=card_id)
             prompt = prompts.PROMPT_CARDS_LIMIT if action == "lmt" else prompts.PROMPT_CARDS_CUTOFF
             send_telegram(chat_id, prompt, reply_markup=menu.pending_cancel_keyboard())
         return
@@ -449,6 +451,7 @@ def _route(message: dict) -> tuple[str, dict]:
 
     # 4. Pending card input → consume free text.
     p = pending_state.pending()
+    log_event(log, "pending_read", action=p[0] if p else None)
     if p:
         action = p[0]
         if action == "add":
@@ -465,6 +468,7 @@ def _route(message: dict) -> tuple[str, dict]:
 
     # 5. Direct expense entry (date/amount first).
     if _looks_like_expense(text):
+        log_event(log, "expense_shortcut", text=text[:40])
         return _safe(expense.handle, text)
 
     # 6. Fallback.
