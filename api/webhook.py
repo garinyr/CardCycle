@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler
 
 from api import auth, config
 from api.commands import cards, expense, help as help_cmd, running, statement, summary
-from api.telegram import answer_callback, delete_message, edit_telegram, send_telegram
+from api.telegram import answer_callback, edit_telegram, send_telegram
 from core import menu, messages, prompts, sheets
 from core.formatter import parse_month_arg, today_wib
 from core.logger import get_logger, log_event
@@ -161,29 +161,6 @@ def _default_card_view(prefix: str):
 
 
 # --- ForceReply prompt reply handlers ---
-
-# Prompts whose stale message is deleted once the user answered them.
-_CLEANUP_PROMPTS = {
-    prompts.PROMPT_CARDS_ADD,
-    prompts.PROMPT_CARDS_LIMIT,
-    prompts.PROMPT_CARDS_CUTOFF,
-}
-
-
-def _cleanup_answered_prompt(message: dict, chat_id: int) -> None:
-    """Delete the bot's own prompt message after a typed answer was processed,
-    so no stale "reply to" message is left in the thread."""
-    reply_to = message.get("reply_to_message") or {}
-    if (reply_to.get("text") or "").strip() not in _CLEANUP_PROMPTS:
-        return
-    mid = reply_to.get("message_id")
-    if mid is None:
-        return
-    try:
-        delete_message(chat_id, mid)
-    except Exception:
-        log.exception("prompt cleanup failed")
-
 
 def _expense_input_reply(text: str):
     # Partial failures are reported inside expense.handle (n saved / n failed);
@@ -504,7 +481,6 @@ class handler(BaseHTTPRequestHandler):
             if text and chat_id:
                 reply, markup = _route(message)
                 send_telegram(chat_id, reply, reply_markup=markup)
-                _cleanup_answered_prompt(message, chat_id)
 
         except Exception:
             log.exception("Unhandled error in do_POST")
