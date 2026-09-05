@@ -32,7 +32,7 @@ def test_route_cards_label_dispatches_to_cards_flow(monkeypatch):
     # picker: one tappable row per active card + Add (no duplicated actions)
     flat = _flat(markup)
     assert "cards:sel:1" in flat and "cards:sel:2" in flat and "cards:add" in flat
-    assert not any(cb.startswith("cards:lmt:") or cb.startswith("cards:cut:") for cb in flat)
+    assert not any(cb.startswith("cards:limit:") or cb.startswith("cards:cutoff:") for cb in flat)
 
 
 def test_select_card_opens_single_action_menu(monkeypatch):
@@ -46,8 +46,8 @@ def test_select_card_opens_single_action_menu(monkeypatch):
     assert "Tokopedia Card" in text
     flat = _flat(markup)
     # exactly one action row for this card (+ Back) — no cross-card duplication
-    assert "cards:lmt:2" in flat and "cards:cut:2" in flat and "cards:main:2" in flat
-    assert "cards:lmt:1" not in flat and "cards:list" in flat
+    assert "cards:limit:2" in flat and "cards:cutoff:2" in flat and "cards:main:2" in flat
+    assert "cards:limit:1" not in flat and "cards:list" in flat
 
 
 def test_route_summary_label_dispatches_to_summary(monkeypatch):

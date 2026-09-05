@@ -290,7 +290,7 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
             reply = cards.confirm_add(action == "addyes")
             edit_telegram(chat_id, message_id, reply, reply_markup={"inline_keyboard": []})
             return
-        if action in ("lmt", "cut"):
+        if action in ("limit", "cutoff"):
             try:
                 card_id = int(token)
             except (TypeError, ValueError):
@@ -298,9 +298,9 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
             card = sheets.get_card(card_id)
             if card is None or not card.get("is_active"):
                 return
-            pending_state.set_pending(action_of(PREFIX_CARDS, action), card_id)
-            log_event(log, "cards_pending_set", action=action, card=card_id)
-            prompt = prompts.PROMPT_CARDS_LIMIT if action == "lmt" else prompts.PROMPT_CARDS_CUTOFF
+            pending_state.set_pending(action_of(PREFIX_CARDS, action), card_id, origin=pending_state.ORIGIN_CARD)
+            log_event(log, "cards_pending_set", action=action, card=card_id, origin=pending_state.ORIGIN_CARD)
+            prompt = prompts.PROMPT_CARDS_LIMIT if action == "limit" else prompts.PROMPT_CARDS_CUTOFF
             send_telegram(chat_id, prompt, reply_markup=menu.pending_cancel_keyboard())
         return
 
@@ -450,11 +450,11 @@ def _route(message: dict) -> tuple[str, dict]:
             return help_cmd.handle(""), menu.reply_keyboard()
         return SLASH_REDIRECT, menu.reply_keyboard()
 
-    # 4. Pending card input → consume free text.
-    p = pending_state.pending()
-    log_event(log, "pending_read", action=p[0] if p else None)
-    if p:
-        action = p[0]
+    # 4. Pending card input → consume free text (fresh) or guide (stale).
+    state = pending_state.read_pending()
+    log_event(log, "pending_read", state=state[0] if state else None, action=state[1] if state else None)
+    if state and state[0] == "fresh":
+        action, card_id = state[1], state[2]
         if action == pending_state.ACTION_ADD:
             reply, _ = cards.start_add(text)
             if reply.startswith("❌"):
@@ -472,6 +472,23 @@ def _route(message: dict) -> tuple[str, dict]:
         # Unknown pending action — never fall through to the expense shortcut.
         pending_state.clear_pending()
         return messages.err("That action is no longer available — tap the card action again."), menu.reply_keyboard()
+
+    if state and state[0] == "stale":
+        # Expired request. A bare number is very likely the old answer — guide
+        # the user back to where they were instead of recording an expense.
+        action, card_id, origin = state[1], state[2], state[3]
+        pending_state.clear_pending()
+        log_event(log, "pending_stale", action=action, ttl_s=pending_state.PENDING_TTL_S, origin=origin)
+        if text.isdigit():
+            note = messages.err(f"That {action} change expired — tap again if you still want it.")
+            card = sheets.get_card(card_id) if card_id is not None else None
+            if origin == pending_state.ORIGIN_CARD and card is not None:
+                context = cards.describe(card_id)
+                markup = menu.cards_actions_keyboard(card, sheets.get_default_card())
+            else:
+                context = cards.view()
+                markup = menu.cards_pick_keyboard(sheets.get_cards(), sheets.get_default_card())
+            return note + "\n\n" + context, markup
 
     # 5. Direct expense entry (date/amount first).
     if _looks_like_expense(text):

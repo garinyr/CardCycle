@@ -37,8 +37,8 @@ ACTIONS: dict[str, dict[str, str]] = {
         CARDS_ACTION_CANCEL: "cancel",
         CARDS_ACTION_ADDYES: "addyes",
         CARDS_ACTION_ADDNO: "addno",
-        CARDS_ACTION_LIMIT: "lmt",
-        CARDS_ACTION_CUTOFF: "cut",
+        CARDS_ACTION_LIMIT: "limit",
+        CARDS_ACTION_CUTOFF: "cutoff",
     },
     PREFIX_EXP: {
         "pick": "pick",

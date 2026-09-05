@@ -48,11 +48,26 @@ def test_pending_none_when_empty(monkeypatch):
     assert pending.pending() is None
 
 
-def test_stale_pending_cleared(monkeypatch):
+def test_stale_pending_read_as_none(monkeypatch):
     cfg = {"cards.pending_action": "limit", "cards.pending_ts": _iso(-10), "cards.edit_card_id": "2"}
     upserts = _patch_cfg(monkeypatch, cfg)
     assert pending.pending() is None
-    assert ("cards.pending_action", "") in upserts  # stale cleared
+    assert upserts == []  # read-only; the router clears stale explicitly
+
+
+def test_read_pending_reports_stale_without_clearing(monkeypatch):
+    cfg = {"cards.pending_action": "cutoff", "cards.pending_ts": _iso(-10), "cards.edit_card_id": "2"}
+    upserts = _patch_cfg(monkeypatch, cfg)
+    assert pending.read_pending() == ("stale", "cutoff", 2, "list")
+    assert upserts == []  # untouched — router decides what to do
+
+
+def test_read_pending_fresh_and_none(monkeypatch):
+    cfg = {}
+    _patch_cfg(monkeypatch, cfg)
+    assert pending.read_pending() is None
+    cfg.update({"cards.pending_action": "limit", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    assert pending.read_pending() == ("fresh", "limit", 2, "list")
 
 
 def test_clear_is_noop_when_empty(monkeypatch):
@@ -109,6 +124,25 @@ def test_route_does_not_capture_plain_text_without_pending(monkeypatch):
     assert reply == w.FALLBACK
 
 
+def test_route_stale_pending_numeric_guided_not_expense(monkeypatch):
+    # cutoff expired 5+ min ago; typing a bare number must not become an expense
+    cfg = {"cards.pending_action": "cutoff", "cards.pending_ts": _iso(-10), "cards.edit_card_id": "2"}
+    _patch_flow(monkeypatch, cfg)
+    monkeypatch.setattr("core.sheets.append_transactions", lambda rows: (_ for _ in ()).throw(AssertionError("must not append")))
+    reply, _ = w._route({"text": "222"})
+    assert "expired" in reply and "Recorded" not in reply
+    assert cfg.get("cards.pending_action") == ""  # cleared after guidance
+
+
+def test_route_stale_pending_text_falls_through(monkeypatch):
+    # stale + non-numeric text is not an old answer → normal routing
+    cfg = {"cards.pending_action": "cutoff", "cards.pending_ts": _iso(-10), "cards.edit_card_id": "2"}
+    _patch_flow(monkeypatch, cfg)
+    reply, _ = w._route({"text": "asdfghjkl"})
+    assert reply == w.FALLBACK
+    assert cfg.get("cards.pending_action") == ""
+
+
 def test_cancel_callback_clears_pending(monkeypatch):
     cfg = _patch_flow(monkeypatch, {"cards.pending_action": "limit", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
     edited = []
@@ -119,13 +153,13 @@ def test_cancel_callback_clears_pending(monkeypatch):
 
 
 def test_cutoff_callback_sets_normalized_pending_action(monkeypatch):
-    # regression: callback token 'cut' must store 'cutoff', not 'cut'
+    # regression: callback tokens are the canonical names (no cut/cutoff split)
     cfg = {}
     _patch_flow(monkeypatch, cfg)
     monkeypatch.setattr("core.sheets.get_card", lambda cid: TOKOPEDIA if cid == 2 else None)
     monkeypatch.setattr("core.sheets.get_cards", lambda: [BNI, TOKOPEDIA])
     monkeypatch.setattr("api.webhook.send_telegram", lambda chat, text, reply_markup=None: None)
-    w._handle_callback({"id": "1", "data": "cards:cut:2", "message": {"chat": {"id": 1}, "message_id": 5}})
+    w._handle_callback({"id": "1", "data": "cards:cutoff:2", "message": {"chat": {"id": 1}, "message_id": 5}})
     assert cfg.get("cards.pending_action") == "cutoff"
 
 

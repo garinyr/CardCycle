@@ -23,6 +23,7 @@ from api.config import (
     CONFIG_DRAFT_CUTOFF,
     CONFIG_DRAFT_NAME,
     CONFIG_PENDING_ACTION,
+    CONFIG_PENDING_ORIGIN,
     CONFIG_PENDING_TS,
 )
 from core.cb import (  # single source
@@ -38,8 +39,12 @@ log = get_logger("pending")
 TZ = ZoneInfo("Asia/Jakarta")
 PENDING_TTL_S = 300  # D2: 5 minutes
 
+ORIGIN_LIST = "list"
+ORIGIN_CARD = "card"
+
 _ALL_KEYS = (
     CONFIG_PENDING_ACTION,
+    CONFIG_PENDING_ORIGIN,
     CONFIG_PENDING_TS,
     CONFIG_CARDS_EDIT_CARD_ID,
     CONFIG_DRAFT_NAME,
@@ -56,12 +61,16 @@ def _set(key: str, value) -> None:
     sheets.upsert_config(key, value)
 
 
-def set_pending(action: str, card_id: int | None = None) -> None:
-    """Record that we are waiting for a typed answer for `action`."""
+def set_pending(action: str, card_id: int | None = None, origin: str | None = None) -> None:
+    """Record that we are waiting for a typed answer for `action`.
+
+    origin remembers where the user tapped (ORIGIN_LIST / ORIGIN_CARD) so a
+    stale request can return them to that context."""
     _set(CONFIG_PENDING_ACTION, action)
+    _set(CONFIG_PENDING_ORIGIN, origin or ORIGIN_LIST)
     _set(CONFIG_PENDING_TS, _now().isoformat(timespec="seconds"))
     _set(CONFIG_CARDS_EDIT_CARD_ID, str(card_id) if card_id is not None else "")
-    log_event(log, "pending_set", action=action, card=card_id)
+    log_event(log, "pending_set", action=action, card=card_id, origin=origin)
 
 
 def clear_pending() -> None:
@@ -76,25 +85,28 @@ def clear_pending() -> None:
 
 
 def pending() -> tuple[str, int | None] | None:
-    """Return (action, card_id) when a fresh pending exists, else None.
+    """Return (action, card_id) when a fresh pending exists, else None."""
+    state = read_pending()
+    if state and state[0] == "fresh":
+        return state[1], state[2]
+    return None
 
-    A stale pending (> PENDING_TTL_S) is cleared first and returns None, so
-    an abandoned action can never capture unrelated text later.
+
+def read_pending() -> tuple[str, str, int | None, str] | None:
+    """Inspect the pending state WITHOUT clearing it.
+
+    Returns one of:
+      ("fresh", action, card_id, origin) — still within TTL,
+      ("stale", action, None, origin)    — expired, not yet cleared,
+      None                                — nothing pending.
+    The router uses this to decide what to do with the incoming text instead
+    of letting a stale action silently fall through (e.g. to expense).
     """
     cfg = sheets.get_config() or {}
     action = str(cfg.get(CONFIG_PENDING_ACTION, "")).strip()
     if not action:
         return None
-    raw_ts = str(cfg.get(CONFIG_PENDING_TS, "")).strip()
-    try:
-        ts = datetime.fromisoformat(raw_ts).astimezone(TZ)
-    except ValueError:
-        clear_pending()
-        return None
-    if _now() - ts > timedelta(seconds=PENDING_TTL_S):
-        log_event(log, "pending_stale", action=action, ttl_s=PENDING_TTL_S)
-        clear_pending()
-        return None
+    origin = str(cfg.get(CONFIG_PENDING_ORIGIN, "")).strip() or ORIGIN_LIST
     raw_card = str(cfg.get(CONFIG_CARDS_EDIT_CARD_ID, "")).strip()
     card_id = None
     if raw_card:
@@ -102,7 +114,14 @@ def pending() -> tuple[str, int | None] | None:
             card_id = int(raw_card)
         except ValueError:
             card_id = None
-    return action, card_id
+    raw_ts = str(cfg.get(CONFIG_PENDING_TS, "")).strip()
+    try:
+        ts = datetime.fromisoformat(raw_ts).astimezone(TZ)
+    except ValueError:
+        return "stale", action, card_id, origin
+    if _now() - ts > timedelta(seconds=PENDING_TTL_S):
+        return "stale", action, card_id, origin
+    return "fresh", action, card_id, origin
 
 
 # --- draft helpers (Add confirmation) ---
