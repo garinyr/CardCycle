@@ -157,6 +157,21 @@ def cards_actions_keyboard(card: dict, default_card: dict | None = None) -> dict
     return {"inline_keyboard": [actions, [{"text": "↩️ Back", "callback_data": "cards:list"}]]}
 
 
+def pending_cancel_keyboard() -> dict:
+    """Cancel button on a plain pending prompt (reply-free input)."""
+    return {"inline_keyboard": [[{"text": "✖️ Cancel", "callback_data": "cards:cancel"}]]}
+
+
+def add_confirm_keyboard() -> dict:
+    """Confirm/deny buttons for a parsed Add draft."""
+    return {
+        "inline_keyboard": [[
+            {"text": "✅ Yes, add it", "callback_data": "cards:addyes"},
+            {"text": "✖️ No", "callback_data": "cards:addno"},
+        ]]
+    }
+
+
 def expense_choice_keyboard(default_card: dict, sticky_card: dict | None) -> dict:
     """First step of the expense flow when >1 active card: chips to pick where
     the batch will be recorded. The current target (sticky or default) leads;

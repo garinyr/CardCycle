@@ -1,0 +1,118 @@
+"""tests/test_pending_input.py — reply-free card input (core.pending + routing).
+
+Covers: pending set/read/clear + stale expiry; free-text consumption in
+`_route` (limit value); guards that clear pending when the user taps another
+menu button / slash / cancel.
+"""
+
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import api.webhook as w
+from core import menu, pending
+from core import prompts
+
+TZ = ZoneInfo("Asia/Jakarta")
+BNI = {"card_id": 1, "card_name": "BNI Mastercard", "bank": "BNI", "card_limit": 15000000, "cutoff_day": 13, "is_active": True}
+TOKOPEDIA = {"card_id": 2, "card_name": "Tokopedia Card", "bank": "Tokopedia", "card_limit": 8000000, "cutoff_day": 27, "is_active": True}
+
+
+def _patch_cfg(monkeypatch, cfg):
+    upserts = []
+
+    def _upsert(k, v):
+        cfg[k] = v
+        upserts.append((k, v))
+
+    monkeypatch.setattr("core.sheets.get_config", lambda: cfg)
+    monkeypatch.setattr("core.sheets.upsert_config", _upsert)
+    return upserts
+
+
+def _iso(offset_minutes=0):
+    return (datetime.now(TZ) + timedelta(minutes=offset_minutes)).isoformat(timespec="seconds")
+
+
+# --- core.pending unit ---
+
+def test_set_and_read_pending(monkeypatch):
+    cfg = {}
+    _patch_cfg(monkeypatch, cfg)
+    pending.set_pending("limit", 2)
+    assert pending.pending() == ("limit", 2)
+
+
+def test_pending_none_when_empty(monkeypatch):
+    cfg = {}
+    _patch_cfg(monkeypatch, cfg)
+    assert pending.pending() is None
+
+
+def test_stale_pending_cleared(monkeypatch):
+    cfg = {"cards.pending_action": "limit", "cards.pending_ts": _iso(-10), "cards.edit_card_id": "2"}
+    upserts = _patch_cfg(monkeypatch, cfg)
+    assert pending.pending() is None
+    assert ("cards.pending_action", "") in upserts  # stale cleared
+
+
+def test_clear_is_noop_when_empty(monkeypatch):
+    cfg = {}
+    upserts = _patch_cfg(monkeypatch, cfg)
+    pending.clear_pending()
+    assert upserts == []
+
+
+# --- routing: consume pending free text ---
+
+def _patch_flow(monkeypatch, cfg):
+    _patch_cfg(monkeypatch, cfg)
+    monkeypatch.setattr("core.sheets.get_cards", lambda: [BNI, TOKOPEDIA])
+    monkeypatch.setattr("core.sheets.get_default_card", lambda: BNI)
+    return cfg
+
+
+def test_route_consumes_limit_value_and_clears(monkeypatch):
+    cfg = _patch_flow(monkeypatch, {"cards.pending_action": "limit", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    calls = []
+    monkeypatch.setattr("core.sheets.update_card_limit", lambda cid, amt: calls.append((cid, amt)))
+    reply, _ = w._route({"text": "9000000"})
+    assert calls == [(2, 9000000)]
+    assert "Tokopedia Card" in reply
+    assert cfg.get("cards.pending_action") == ""  # cleared on success
+
+
+def test_route_keeps_pending_on_error(monkeypatch):
+    cfg = _patch_flow(monkeypatch, {"cards.pending_action": "cutoff", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    reply, _ = w._route({"text": "40"})
+    assert "cutoff must be 1–28" in reply
+    assert cfg.get("cards.pending_action") == "cutoff"  # D1: stays for retype
+
+
+def test_menu_button_tap_clears_pending(monkeypatch):
+    cfg = _patch_flow(monkeypatch, {"cards.pending_action": "limit", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    monkeypatch.setattr("api.webhook.summary.handle", lambda: "SUMMARY-OK")
+    reply, _ = w._route({"text": menu.BTN_SUMMARY})
+    assert reply == "SUMMARY-OK"
+    assert cfg.get("cards.pending_action") == ""
+
+
+def test_slash_clears_pending(monkeypatch):
+    cfg = _patch_flow(monkeypatch, {"cards.pending_action": "limit", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    reply, _ = w._route({"text": "/start"})
+    assert "CardCycle" in reply  # menu shown
+    assert cfg.get("cards.pending_action") == ""
+
+
+def test_route_does_not_capture_plain_text_without_pending(monkeypatch):
+    _patch_flow(monkeypatch, {})
+    reply, _ = w._route({"text": "asdfghjkl"})
+    assert reply == w.FALLBACK
+
+
+def test_cancel_callback_clears_pending(monkeypatch):
+    cfg = _patch_flow(monkeypatch, {"cards.pending_action": "limit", "cards.pending_ts": _iso(), "cards.edit_card_id": "2"})
+    edited = []
+    monkeypatch.setattr("api.webhook.edit_telegram", lambda chat, mid, text, reply_markup=None: edited.append(text))
+    w._handle_callback({"id": "1", "data": "cards:cancel", "message": {"chat": {"id": 1}, "message_id": 5}})
+    assert cfg.get("cards.pending_action") == ""
+    assert edited and "Cancelled" in edited[0]

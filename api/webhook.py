@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler
 from api import auth, config
 from api.commands import cards, expense, help as help_cmd, running, statement, summary
 from api.telegram import answer_callback, edit_telegram, send_telegram
-from core import menu, messages, prompts, sheets
+from core import menu, messages, pending as pending_state, prompts, sheets
 from core.formatter import parse_month_arg, today_wib
 from core.logger import get_logger, log_event
 from core.parser import parse_amount, parse_date
@@ -77,6 +77,7 @@ def _send_expense_prompt(chat_id, card: dict) -> None:
 
 
 def _expense_callback(action: str, chat_id, message_id) -> None:
+    pending_state.clear_pending()
     if action == "other":
         default = sheets.get_default_card()
         cards = sheets.get_cards()
@@ -182,20 +183,10 @@ def _running_month_reply(text: str):
     return running.handle(text), menu.reply_keyboard()
 
 
-def _cards_prompt_reply(fn):
-    """Wrap a cards action reply fn: str → (str, reply keyboard)."""
-    def reply(text: str):
-        return fn(text), menu.reply_keyboard()
-    return reply
-
-
 PROMPT_HANDLERS = {
     prompts.PROMPT_EXPENSE_INPUT: _expense_input_reply,
     prompts.PROMPT_STATEMENT_MONTH: _statement_month_reply,
     prompts.PROMPT_RUNNING_MONTH: _running_month_reply,
-    prompts.PROMPT_CARDS_ADD: _cards_prompt_reply(cards.add_reply),
-    prompts.PROMPT_CARDS_LIMIT: _cards_prompt_reply(cards.limit_reply),
-    prompts.PROMPT_CARDS_CUTOFF: _cards_prompt_reply(cards.cutoff_reply),
 }
 
 
@@ -227,14 +218,17 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
 
     if prefix == "cards":
         if action == "add":
-            send_telegram(chat_id, prompts.PROMPT_CARDS_ADD, reply_markup=_force_reply_markup())
+            pending_state.set_pending("add")
+            send_telegram(chat_id, prompts.PROMPT_CARDS_ADD, reply_markup=menu.pending_cancel_keyboard())
             return
         if action == "list":
+            pending_state.clear_pending()
             default = sheets.get_default_card()
             edit_telegram(chat_id, message_id, cards.view(),
                           reply_markup=menu.cards_pick_keyboard(sheets.get_cards(), default))
             return
         if action == "sel":
+            pending_state.clear_pending()
             try:
                 card_id = int(token)
             except (TypeError, ValueError):
@@ -246,6 +240,7 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
                           reply_markup=menu.cards_actions_keyboard(card, sheets.get_default_card()))
             return
         if action == "main":
+            pending_state.clear_pending()
             try:
                 card_id = int(token)
             except (TypeError, ValueError):
@@ -255,6 +250,14 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
             edit_telegram(chat_id, message_id, reply,
                           reply_markup=menu.cards_pick_keyboard(sheets.get_cards(), default))
             return
+        if action == "cancel":
+            pending_state.clear_pending()
+            edit_telegram(chat_id, message_id, "✖️ Cancelled.", reply_markup={"inline_keyboard": []})
+            return
+        if action in ("addyes", "addno"):
+            reply = cards.confirm_add(action == "addyes")
+            edit_telegram(chat_id, message_id, reply, reply_markup={"inline_keyboard": []})
+            return
         if action in ("lmt", "cut"):
             try:
                 card_id = int(token)
@@ -263,14 +266,9 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
             card = sheets.get_card(card_id)
             if card is None or not card.get("is_active"):
                 return
-            sheets.upsert_config(config.CONFIG_CARDS_EDIT_CARD_ID, str(card_id))
-            if action == "lmt":
-                prompt = prompts.PROMPT_CARDS_LIMIT
-                hint = f"New limit for {card.get('card_name')} — type amount"
-            else:
-                prompt = prompts.PROMPT_CARDS_CUTOFF
-                hint = f"New cutoff day for {card.get('card_name')} — type 1–28"
-            send_telegram(chat_id, prompt, reply_markup=_retry_markup(hint))
+            pending_state.set_pending(action, card_id)
+            prompt = prompts.PROMPT_CARDS_LIMIT if action == "lmt" else prompts.PROMPT_CARDS_CUTOFF
+            send_telegram(chat_id, prompt, reply_markup=menu.pending_cancel_keyboard())
         return
 
     # note: stmt/run callbacks are routed via _month_callback in _handle_callback.
@@ -278,6 +276,7 @@ def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id
 
 def _month_callback(parts: list[str], chat_id, message_id) -> None:
     """stmt/run inline callbacks (MVP2 card-aware tokens)."""
+    pending_state.clear_pending()
     prefix = parts[0]
     kind = parts[1] if len(parts) > 1 else ""
 
@@ -391,10 +390,11 @@ def _route(message: dict) -> tuple[str, dict]:
     """Route a chat message → (reply_text, reply_markup). Routing priority:
 
     1. reply to a ForceReply prompt (exact match on reply_to_message.text)
-    2. menu label tap → feature entry flow
-    3. (optional) direct expense entry
-    4. legacy slash → redirect to the menu
-    5. fallback
+    2. menu label tap → feature entry flow (clears any pending card input)
+    3. slash → /start, /help show the menu; other slash redirects (pending cleared)
+    4. pending card input → consume the free text for the active action
+    5. (optional) direct expense entry
+    6. fallback
     """
     text = (message.get("text") or "").strip()
 
@@ -404,23 +404,40 @@ def _route(message: dict) -> tuple[str, dict]:
     if prompt_fn:
         return _safe(prompt_fn, text)
 
-    # 2. Menu label tap → feature entry flow.
+    # 2. Menu label tap → feature entry flow. The user moved on: clear pending.
     cmd = menu.cmd_for_label(text)
     if cmd:
+        pending_state.clear_pending()
         return _safe(_menu_flow, cmd)
 
-    # 3. Direct expense entry (date/amount first).
+    # 3. Slash → clear pending, then menu (/start,/help) or redirect.
+    if text.startswith("/"):
+        pending_state.clear_pending()
+        if _extract_command(text) in ("start", "help"):
+            return help_cmd.handle(""), menu.reply_keyboard()
+        return SLASH_REDIRECT, menu.reply_keyboard()
+
+    # 4. Pending card input → consume free text.
+    p = pending_state.pending()
+    if p:
+        action = p[0]
+        if action == "add":
+            reply, _ = cards.start_add(text)
+            if reply.startswith("❌"):
+                return reply, menu.pending_cancel_keyboard()  # keep pending, allow cancel
+            return reply, menu.add_confirm_keyboard()
+        fn = {"limit": cards.limit_reply, "cutoff": cards.cutoff_reply}.get(action)
+        if fn:
+            reply = fn(text)
+            if not reply.startswith("❌"):
+                pending_state.clear_pending()
+            return reply, menu.reply_keyboard()
+
+    # 5. Direct expense entry (date/amount first).
     if _looks_like_expense(text):
         return _safe(expense.handle, text)
 
-    # 4. /start and /help are the friendly entry commands — show the menu.
-    #    Every other legacy slash → redirect, never silent.
-    if _extract_command(text) in ("start", "help"):
-        return help_cmd.handle(""), menu.reply_keyboard()
-    if text.startswith("/"):
-        return SLASH_REDIRECT, menu.reply_keyboard()
-
-    # 5. Fallback.
+    # 6. Fallback.
     return FALLBACK, menu.reply_keyboard()
 
 

@@ -16,6 +16,7 @@ TOKOPEDIA = {"card_id": 2, "card_name": "Tokopedia Card", "bank": "Tokopedia", "
 def _patch(monkeypatch, cards=None, default=BNI, txns=None):
     monkeypatch.setattr("core.sheets.get_cards", lambda: cards if cards is not None else [BNI, TOKOPEDIA])
     monkeypatch.setattr("core.sheets.get_default_card", lambda: default)
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     monkeypatch.setattr("core.sheets.read_transactions", lambda: txns if txns is not None else [])
     monkeypatch.setattr("core.sheets.get_card", lambda cid: {1: BNI, 2: TOKOPEDIA}.get(cid))
 

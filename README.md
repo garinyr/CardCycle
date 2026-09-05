@@ -19,7 +19,6 @@ Everything is **button-first**. A persistent reply-keyboard menu sits at the bot
 | 🗂 Cards | List / manage cards (default, limit, cutoff) |
 | 📊 Summary | All cards' running-cycle utilization at a glance |
 | ℹ️ Help | Menu + format help |
-| ℹ️ Help | Menu + format help |
 
 Free-text input is still typed (via ForceReply) for the actions that need it:
 **Expense** (amount + description), **adding a card**, and a card's **Limit**

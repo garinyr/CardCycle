@@ -15,6 +15,11 @@ CONFIG_NEXT_CARD_ID = "next_card_id"
 CONFIG_DEFAULT_CARD_ID = "default_card_id"
 CONFIG_EXPENSE_CARD_ID = "expense_card_id"
 CONFIG_CARDS_EDIT_CARD_ID = "cards.edit_card_id"
+CONFIG_PENDING_ACTION = "cards.pending_action"
+CONFIG_PENDING_TS = "cards.pending_ts"
+CONFIG_DRAFT_NAME = "cards.draft_name"
+CONFIG_DRAFT_AMOUNT = "cards.draft_amount"
+CONFIG_DRAFT_CUTOFF = "cards.draft_cutoff"
 
 AUTHORIZED_USER_ID = int(os.environ.get("TELEGRAM_USER_ID") or "0")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")

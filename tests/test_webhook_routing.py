@@ -49,7 +49,8 @@ def test_route_direct_expense(monkeypatch):
 
 
 # 4. legacy slash → redirect (never silent)
-def test_route_slash_redirect():
+def test_route_slash_redirect(monkeypatch):
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     msg = {"text": "/statement"}
     reply, markup = w._route(msg)
     assert reply == w.SLASH_REDIRECT
@@ -60,27 +61,31 @@ def test_route_slash_redirect():
 from core import menu as menu_mod
 
 
-def test_route_start_shows_menu():
+def test_route_start_shows_menu(monkeypatch):
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     msg = {"text": "/start"}
     reply, markup = w._route(msg)
     assert reply == menu_mod.menu_text()
     assert "keyboard" in markup
 
 
-def test_route_start_with_payload_shows_menu():
+def test_route_start_with_payload_shows_menu(monkeypatch):
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     msg = {"text": "/start ref-123"}
     reply, _ = w._route(msg)
     assert reply == menu_mod.menu_text()
 
 
-def test_route_help_slash_shows_menu():
+def test_route_help_slash_shows_menu(monkeypatch):
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     msg = {"text": "/help"}
     reply, _ = w._route(msg)
     assert reply == menu_mod.menu_text()
 
 
 # 5. fallback
-def test_route_fallback():
+def test_route_fallback(monkeypatch):
+    monkeypatch.setattr("core.sheets.get_config", lambda: {})
     msg = {"text": "asdfghjkl"}
     reply, markup = w._route(msg)
     assert reply == w.FALLBACK
