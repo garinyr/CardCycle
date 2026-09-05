@@ -51,6 +51,12 @@ def send_telegram(chat_id: int, text: str, reply_markup: dict | None = None, for
     return _api_call("sendMessage", payload)
 
 
+def delete_message(chat_id: int, message_id: int) -> bool:
+    """Delete one of the bot's own messages (e.g. a stale prompt after the
+    user answered it). Safe to call on already-deleted messages."""
+    return _api_call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+
+
 def edit_telegram(chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> bool:
     """Edit an existing message in place (used by the inline month picker)."""
     payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}

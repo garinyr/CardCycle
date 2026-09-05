@@ -56,3 +56,24 @@ def test_route_summary_label_dispatches_to_summary(monkeypatch):
     reply, markup = w._route({"text": menu.BTN_SUMMARY})
     assert reply == "SUMMARY-OK"
     assert "keyboard" in markup  # menu re-attached
+
+
+# --- answered-prompt cleanup (cards prompts are deleted after use) ---
+
+from core import prompts
+
+
+def test_answered_cards_prompt_is_deleted(monkeypatch):
+    deleted = []
+    monkeypatch.setattr("api.webhook.delete_message", lambda chat, mid: deleted.append((chat, mid)))
+    msg = {"text": "8000000", "reply_to_message": {"message_id": 55, "text": prompts.PROMPT_CARDS_LIMIT}}
+    w._cleanup_answered_prompt(msg, 123)
+    assert deleted == [(123, 55)]
+
+
+def test_answered_non_cleanup_prompt_not_deleted(monkeypatch):
+    deleted = []
+    monkeypatch.setattr("api.webhook.delete_message", lambda chat, mid: deleted.append((chat, mid)))
+    msg = {"text": "150000 Lunch", "reply_to_message": {"message_id": 56, "text": prompts.PROMPT_EXPENSE_INPUT}}
+    w._cleanup_answered_prompt(msg, 123)
+    assert deleted == []
