@@ -9,6 +9,18 @@ a token can never drift between the two consumers (bug class: 'cut' vs
 Convention: `ACTIONS[prefix]` maps a canonical action name → transport token.
 Identity tokens (token == canonical name) still get listed so *every* token a
 feature uses lives in this one file.
+
+Token grammar (full):
+
+| callback_data | meaning |
+|---|---|
+| `cards:add` / `cards:sel:<id>` / `cards:main:<id>` / `cards:list` / `cards:cancel` / `cards:addyes` / `cards:addno` | Cards flow (identity tokens) |
+| `cards:limit:<id>` / `cards:cutoff:<id>` | Cards flow — canonical `limit`/`cutoff` (data = card id) |
+| `exp:pick:<id>` / `exp:other` | Expense chip picker |
+| `stmt:<card_id>:<month>` | statement month tap (data-led: card + month) |
+| `stmt:detail_on / detail_off:<card_id>:<month>` | statement detail toggle (action-led) |
+| `stmt:all:<viewing_id>` / `stmt:view:<id>` / `stmt:back:<id>` / `stmt:other:<id>` | statement card nav |
+| same set with `run:` prefix | running views |
 """
 
 PREFIX_CARDS = "cards"

@@ -148,8 +148,25 @@ def test_cancel_callback_clears_pending(monkeypatch):
     edited = []
     monkeypatch.setattr("api.webhook.edit_telegram", lambda chat, mid, text, reply_markup=None: edited.append(text))
     w._handle_callback({"id": "1", "data": "cards:cancel", "message": {"chat": {"id": 1}, "message_id": 5}})
-    assert cfg.get("app.pending_action") == ""
+    assert cfg.get("app.pending") == ""
     assert edited and "Cancelled" in edited[0]
+
+
+def test_slash_wins_over_pending(monkeypatch):
+    # priority: slash clears pending and shows /start menu, never consumes text
+    cfg = _patch_flow(monkeypatch, {"app.pending": '{"a": "limit", "c": 2, "o": "card", "t": "' + _iso() + '"}'})
+    reply, _ = w._route({"text": "/start"})
+    assert "CardCycle" in reply
+    assert cfg.get("app.pending") == ""
+
+
+def test_menu_label_wins_over_pending(monkeypatch):
+    # priority: menu button clears pending and runs that flow
+    cfg = _patch_flow(monkeypatch, {"app.pending": '{"a": "limit", "c": 2, "o": "card", "t": "' + _iso() + '"}'})
+    monkeypatch.setattr("api.webhook.summary.handle", lambda: "SUMMARY-OK")
+    reply, _ = w._route({"text": menu.BTN_SUMMARY})
+    assert reply == "SUMMARY-OK"
+    assert cfg.get("app.pending") == ""
 
 
 def test_cutoff_callback_sets_normalized_pending_action(monkeypatch):

@@ -236,18 +236,32 @@ def _invalidate_config_cache() -> None:
     _config_cache = None
 
 
+def _update_cell_retry(ws, row: int, col: int, value, key: str) -> None:
+    """Update one cell; on a 429/API error, drop the cached row map and retry
+    once against the freshly-read map (the sheet may have been reordered)."""
+    global _config_rows, _config_rows_ts
+    try:
+        ws.update_cell(row, col, value)
+    except gspread.exceptions.APIError:
+        _config_rows = None
+        _config_rows_ts = 0.0
+        rows2, _ = _config_key_rows()
+        new_row = rows2.get(key, row)
+        ws.update_cell(new_row, col, value)
+
+
 def set_config(key: str, value) -> None:
     rows, _ = _config_key_rows()
     if key not in rows:
         raise RuntimeError(f"Config has no key '{key}'")
-    _worksheet(SHEET_CONFIG).update_cell(rows[key], 2, value)
+    _update_cell_retry(_worksheet(SHEET_CONFIG), rows[key], 2, value, key)
     _invalidate_config_cache()
 
 
 def upsert_config(key: str, value) -> None:
     """Update `key` in Config, or append the row when it does not exist yet.
 
-    MVP2 groundwork (runtime keys like `app.pending_*`) — keys may be created
+    MVP2 groundwork (runtime keys like `app.pending`) — keys may be created
     at runtime, unlike the MVP1 keys that are provisioned manually. Uses the
     cached key→row map: one READ per burst, then direct cell updates.
     """
@@ -255,7 +269,7 @@ def upsert_config(key: str, value) -> None:
     ws = _worksheet(SHEET_CONFIG)
     rows, last = _config_key_rows()
     if key in rows:
-        ws.update_cell(rows[key], 2, value)
+        _update_cell_retry(ws, rows[key], 2, value, key)
     else:
         # headers: key | value | description | updated_at
         ws.append_rows([[key, value, "", ""]], value_input_option="RAW")

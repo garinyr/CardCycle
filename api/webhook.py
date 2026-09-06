@@ -16,6 +16,9 @@ from core.logger import get_logger, log_event
 
 log = get_logger("cc")
 
+if not config.WEBHOOK_SECRET:
+    log.warning("WEBHOOK_SECRET is empty — secret-header check is disabled")
+
 # Startup marker — appears in Vercel runtime logs on every cold start / redeploy.
 log_event(log, "app_start", version=config.APP_VERSION, ok=True)
 
