@@ -18,8 +18,6 @@ from core.cb import (
     CARDS_ACTION_SEL as ACTION_SEL,
     EXP_ACTION_OTHER,
     EXP_ACTION_PICK,
-    EXP_ACTION_RECORD_NO,
-    EXP_ACTION_RECORD_YES,
     PREFIX_CARDS,
     PREFIX_EXP,
     build as cb_build,
@@ -187,16 +185,6 @@ def add_confirm_keyboard() -> dict:
         "inline_keyboard": [[
             {"text": "✅ Yes, add it", "callback_data": cb_build(PREFIX_CARDS, ACTION_ADDYES)},
             {"text": "✖️ No", "callback_data": cb_build(PREFIX_CARDS, ACTION_ADDNO)},
-        ]]
-    }
-
-
-def expense_record_keyboard() -> dict:
-    """Confirm buttons for a bare-number expense (D2)."""
-    return {
-        "inline_keyboard": [[
-            {"text": "✅ Record as expense", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_RECORD_YES)},
-            {"text": "✖️ Cancel", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_RECORD_NO)},
         ]]
     }
 

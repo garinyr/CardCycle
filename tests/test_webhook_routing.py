@@ -41,11 +41,12 @@ def test_route_menu_label_expense_forces_reply(monkeypatch):
 
 
 # 3. direct numeric expense entry (no button tap)
-def test_route_direct_expense(monkeypatch):
+def test_route_expense_text_without_context_generic_error(monkeypatch):
+    # expense-like free text outside the Expense flow: generic "don't understand"
     _patch_sheets(monkeypatch)
     msg = {"text": "50000 kopi"}
     reply, _ = w._route(msg)
-    assert "1 saved" in reply
+    assert reply == w.FALLBACK and "Recorded" not in reply
 
 
 # 4. legacy slash → redirect (never silent)

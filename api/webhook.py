@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler
 from api import auth, config
 from api.commands import cards, expense, help as help_cmd, running, statement, summary
 from api.telegram import answer_callback, edit_telegram, send_telegram
-from core import freetext, menu, messages, pending as pending_state, prompts, sheets
+from core import menu, messages, pending as pending_state, prompts, sheets
 from core.cb import PREFIX_CARDS, action_of, build as cb_build
 from core.formatter import parse_month_arg, today_wib
 from core.logger import get_logger, log_event
@@ -78,15 +78,6 @@ def _send_expense_prompt(chat_id, card: dict) -> None:
 
 
 def _expense_callback(action: str, chat_id, message_id) -> None:
-    if action in ("record_yes", "record_no"):
-        draft = pending_state.draft()
-        pending_state.clear_pending()
-        if action == "record_yes" and draft is not None and draft[1] > 0:
-            reply = expense.handle(str(draft[1]))
-        else:
-            reply = messages.info("Expense cancelled.")
-        edit_telegram(chat_id, message_id, reply, reply_markup={"inline_keyboard": []})
-        return
     pending_state.clear_pending()
     if action == "other":
         default = sheets.get_default_card()
@@ -516,24 +507,9 @@ def _route(message: dict) -> tuple[str, dict]:
                 markup = menu.cards_pick_keyboard(sheets.get_cards(), sheets.get_default_card())
             return note + "\n\n" + context, markup
 
-    # 5. Bare number, no pending → confirm before recording (D2).
-    if freetext.is_bare_amount(text):
-        try:
-            amount = int(text.replace(".", "").replace(",", ""))
-        except ValueError:
-            amount = 0
-        pending_state.save_draft("*", amount, 0)
-        return f"Record Rp {amount:,} as an expense?", menu.expense_record_keyboard()
-
-    # 6. Direct expense entry (date/amount first).
-    if _looks_like_expense(text):
-        log_event(log, "expense_shortcut", text=text[:40])
-        return _safe(expense.handle, text)
-
-    # 7. Fallback with a targeted hint.
-    hint = freetext.suggest(text)
-    if hint:
-        return "❌ I don't understand that.\n\n💡 " + hint, menu.reply_keyboard()
+    # 5. No context and no matching button → generic error. Free text is only
+    #    meaningful after the related button was tapped; everything else gets
+    #    the same simple "I don't understand" (never a silent side effect).
     return FALLBACK, menu.reply_keyboard()
 
 
