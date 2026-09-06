@@ -77,7 +77,7 @@ def _send_expense_prompt(chat_id, card: dict) -> None:
     )
 
 
-def _expense_callback(action: str, chat_id, message_id) -> None:
+def _expense_callback(action: str, chat_id, message_id, token: str = None) -> None:
     pending_state.clear_pending()
     if action == "other":
         default = sheets.get_default_card()
@@ -85,10 +85,10 @@ def _expense_callback(action: str, chat_id, message_id) -> None:
         edit_telegram(chat_id, message_id, "💳 Expense — pick a card:",
                       reply_markup=menu.expense_pick_keyboard(cards, default))
         return
-    if action.startswith("pick:"):
+    if action == "pick":
         try:
-            card_id = int(action.split(":", 1)[1])
-        except (IndexError, ValueError):
+            card_id = int(token)
+        except (TypeError, ValueError):
             return
         card = sheets.get_card(card_id)
         if card is None or not card.get("is_active"):
@@ -244,7 +244,7 @@ def _menu_flow(cmd: str):
 def _callback_dispatch(prefix: str, action: str, token: str, chat_id, message_id):
     """Render a feature for an inline callback and edit the message in place."""
     if prefix == "exp":
-        _expense_callback(action, chat_id, message_id)
+        _expense_callback(action, chat_id, message_id, token)
         return
 
     if prefix == "cards":
@@ -402,6 +402,8 @@ def _handle_callback(callback: dict):
 
     parts = data_s.split(":")
     prefix = parts[0] if parts else ""
+    log_event(log, "callback_tap", prefix=prefix or "-", token=(parts[1] if len(parts) > 1 else "-"),
+              data=data_s[:80], chat=chat_id)
     if prefix in ("stmt", "run") and len(parts) >= 2:
         _month_callback(parts, chat_id, message_id)
         return
@@ -457,6 +459,7 @@ def _route(message: dict) -> tuple[str, dict]:
     # 2. Menu label tap → feature entry flow. The user moved on: clear pending.
     cmd = menu.cmd_for_label(text)
     if cmd:
+        log_event(log, "menu_tap", label=text[:60], cmd=cmd)
         pending_state.clear_pending()
         return _safe(_menu_flow, cmd)
 
@@ -472,6 +475,7 @@ def _route(message: dict) -> tuple[str, dict]:
     log_event(log, "pending_read", state=state[0] if state else None, action=state[1] if state else None)
     if state and state[0] == "fresh":
         action, card_id = state[1], state[2]
+        log_event(log, "pending_input", action=action, card=card_id, text=text[:40])
         if action == pending_state.ACTION_ADD:
             reply, _ = cards.start_add(text)
             if reply.startswith("❌"):
@@ -510,6 +514,7 @@ def _route(message: dict) -> tuple[str, dict]:
     # 5. No context and no matching button → generic error. Free text is only
     #    meaningful after the related button was tapped; everything else gets
     #    the same simple "I don't understand" (never a silent side effect).
+    log_event(log, "route_fallback", text=text[:60])
     return FALLBACK, menu.reply_keyboard()
 
 
@@ -566,6 +571,9 @@ class handler(BaseHTTPRequestHandler):
             text = (message.get("text") or "").strip()
             cmd = _extract_command(text)
             log_event(log, "command", command=cmd or "none")
+            reply_to = message.get("reply_to_message") or {}
+            log_event(log, "user_input", text=text[:40], len=len(text),
+                      reply_to=bool(reply_to), slash=text.startswith("/"))
 
             if text and chat_id:
                 reply, markup = _route(message)

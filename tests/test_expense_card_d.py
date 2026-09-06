@@ -90,7 +90,7 @@ def test_expense_pick_sets_sticky_and_sends_prompt(monkeypatch):
     monkeypatch.setattr("api.webhook.send_telegram", lambda chat, text, reply_markup=None: sent.append((text, reply_markup)))
     monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: upserts.append((k, v)))
     monkeypatch.setattr("core.sheets.get_card", lambda cid: TOKOPEDIA)
-    w._expense_callback("pick:2", 123, 456)
+    w._expense_callback("pick", 123, 456, "2")
     assert upserts == [("expense_card_id", "2")]
     assert len(sent) == 1
     text, markup = sent[0]
@@ -105,5 +105,18 @@ def test_expense_pick_inactive_card_ignored(monkeypatch):
     monkeypatch.setattr("core.sheets.get_card", lambda cid: inactive)
     sent = []
     monkeypatch.setattr("api.webhook.send_telegram", lambda chat, text, reply_markup=None: sent.append(1))
-    w._expense_callback("pick:2", 123, 456)
+    w._expense_callback("pick", 123, 456, "2")
     assert sent == []
+
+
+def test_chip_callback_real_update_sends_prompt(monkeypatch):
+    # regression: tapping an expense chip (exp:pick:1) must reach _send_expense_prompt
+    _patch_sheets(monkeypatch)
+    monkeypatch.setattr("api.webhook.answer_callback", lambda cid: None)
+    monkeypatch.setattr("api.webhook.edit_telegram", lambda *a, **k: None)
+    monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: None)
+    monkeypatch.setattr("core.sheets.get_card", lambda cid: BNI if cid == 1 else None)
+    sent = []
+    monkeypatch.setattr("api.webhook.send_telegram", lambda chat, text, reply_markup=None: sent.append((text, reply_markup)))
+    w._handle_callback({"id": "1", "data": "exp:pick:1", "message": {"chat": {"id": 1}, "message_id": 9}})
+    assert sent and sent[0][0] == prompts.PROMPT_EXPENSE_INPUT
