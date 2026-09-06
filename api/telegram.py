@@ -37,16 +37,13 @@ def _api_call(method: str, payload: dict) -> bool:
         return False
 
 
-def send_telegram(chat_id: int, text: str, reply_markup: dict | None = None, force_reply: bool = False) -> bool:
+def send_telegram(chat_id: int, text: str, reply_markup: dict | None = None) -> bool:
     """Send a message to a Telegram chat. Return True if the API succeeded.
 
     reply_markup: any keyboard payload (e.g. menu.reply_keyboard()).
-    force_reply:  True pins the reply box to this message (ForceReply).
     """
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-    if force_reply:
-        payload["reply_markup"] = {"force_reply": True, "input_field_placeholder": "Reply to this message"}
-    elif reply_markup is not None:
+    if reply_markup is not None:
         payload["reply_markup"] = reply_markup
     return _api_call("sendMessage", payload)
 

@@ -60,7 +60,7 @@ next_card_id     | 2     | card id counter (monotonic; next new card gets id 2)
 default_card_id  | 1     | default card
 next_id          | 1     | transaction id counter (monotonic)
 ```
-> `expense_card_id` (remembered card for Expense) is **auto-created** by the bot
+> `app.expense_card_id` (remembered card for Expense) is **auto-created** by the bot
 > when you pick a card — do not add it manually.
 
 **`Transactions`** — row 1 header, data empty for now:

@@ -13,7 +13,6 @@ from core import menu, messages, pending as pending_state, prompts, sheets
 from core.cb import PREFIX_CARDS, action_of, build as cb_build
 from core.formatter import parse_month_arg, today_wib
 from core.logger import get_logger, log_event
-from core.parser import parse_amount, parse_date
 
 log = get_logger("cc")
 
@@ -22,17 +21,6 @@ log_event(log, "app_start", version=config.APP_VERSION, ok=True)
 
 SLASH_REDIRECT = "Slash commands are no longer used — use the buttons below 👇"
 FALLBACK = "I don't understand — please pick a button below"
-
-
-def _retry_markup(hint: str) -> dict:
-    """ForceReply markup. The hint lives in the input placeholder, never in the
-    message text — so the next `reply_to_message.text` still exact-matches the
-    prompt constant (prompts.py)."""
-    return {"force_reply": True, "input_field_placeholder": hint}
-
-
-def _force_reply_markup() -> dict:
-    return _retry_markup("Reply to this message")
 
 
 # --- expense card picker (MVP2 Option D) ---
@@ -52,29 +40,30 @@ def _sticky_expense_card() -> dict | None:
 
 
 def _expense_entry():
-    """Tap 💳 Expense: >1 active card → chip picker first; else straight to the
-    prompt (v1.0.0 behavior)."""
+    """Tap 💳 Expense: >1 active card → chip picker first; else plain prompt
+    + pending (uniform, reply-free)."""
     default = sheets.get_default_card()
     if default is None:
         return messages.err("No card set up yet. Prepare the Cards sheet first."), menu.reply_keyboard()
     active = [c for c in sheets.get_cards() if c.get("is_active")]
     if len(active) <= 1:
-        return prompts.PROMPT_EXPENSE_INPUT, _force_reply_markup()
+        sheets.upsert_config(config.CONFIG_EXPENSE_CARD_ID, str(default["card_id"]))
+        pending_state.set_pending(pending_state.ACTION_EXPENSE, default["card_id"],
+                                  origin=pending_state.ORIGIN_LIST)
+        return prompts.PROMPT_EXPENSE_INPUT, menu.pending_cancel_keyboard()
     sticky = _sticky_expense_card()
     text = "💳 Expense — record to which card?"
     return text, menu.expense_choice_keyboard(default, sticky)
 
 
 def _send_expense_prompt(chat_id, card: dict) -> None:
-    """After a chip pick: remember the card and send the prompt + ForceReply.
-    The chosen card is visible in the placeholder so the user never mis-posts."""
+    """After a chip pick: remember the card, open a pending expense prompt and
+    send it as a plain message + Cancel (no ForceReply quote)."""
     sheets.upsert_config(config.CONFIG_EXPENSE_CARD_ID, str(card["card_id"]))
-    name = card.get("card_name") or "card"
-    send_telegram(
-        chat_id,
-        prompts.PROMPT_EXPENSE_INPUT,
-        reply_markup=_retry_markup(f"Recording to {name} — type amount + description"),
-    )
+    pending_state.set_pending(pending_state.ACTION_EXPENSE, card["card_id"],
+                              origin=pending_state.ORIGIN_LIST)
+    send_telegram(chat_id, prompts.PROMPT_EXPENSE_INPUT,
+                  reply_markup=menu.pending_cancel_keyboard())
 
 
 def _expense_callback(action: str, chat_id, message_id, token: str = None) -> None:
@@ -160,65 +149,6 @@ def _default_card_view(prefix: str):
     if card is None:
         return messages.no_card(), menu.reply_keyboard()
     return _view_for(card, prefix)
-
-
-# --- ForceReply prompt reply handlers ---
-
-def _expense_input_reply(text: str):
-    # Partial failures are reported inside expense.handle (n saved / n failed);
-    # no retry loop for free-text input.
-    return expense.handle(text), menu.reply_keyboard()
-
-
-def _statement_month_reply(text: str):
-    clean = " ".join(t for t in text.split() if not t.startswith("@"))
-    if parse_month_arg(clean.strip(), today_wib()) is None:
-        return prompts.PROMPT_STATEMENT_MONTH, _retry_markup("Unknown format, try: mar25")
-    return statement.handle(text), menu.reply_keyboard()
-
-
-def _running_month_reply(text: str):
-    clean = " ".join(t for t in text.split() if not t.startswith("@"))
-    if parse_month_arg(clean.strip(), today_wib()) is None:
-        return prompts.PROMPT_RUNNING_MONTH, _retry_markup("Unknown format, try: mar25")
-    return running.handle(text), menu.reply_keyboard()
-
-
-def _cards_reply(fn):
-    """Reply handler for a Limit/Cutoff prompt (active or stale).
-
-    With an active pending context the value is applied (pending cleared on
-    success). Without one the prompt is stale — guide to tap the action again
-    instead of letting the text fall through to the expense shortcut."""
-    def reply(text: str):
-        if pending_state.pending() is None:
-            return messages.err("That prompt is no longer active — tap the card action again."), menu.reply_keyboard()
-        out = fn(text)
-        if not out.startswith("❌"):
-            pending_state.clear_pending()
-        return out, menu.reply_keyboard()
-    return reply
-
-
-def _cards_add_reply(text: str):
-    """Reply path for the Add prompt: preview + confirm buttons; stale prompt
-    (no pending) is rejected instead of falling through."""
-    if pending_state.pending() is None:
-        return messages.err("That prompt is no longer active — tap the card action again."), menu.reply_keyboard()
-    preview, _ = cards.start_add(text)
-    if preview.startswith("❌"):
-        return preview, menu.reply_keyboard()
-    return preview, menu.add_confirm_keyboard()
-
-
-PROMPT_HANDLERS = {
-    prompts.PROMPT_EXPENSE_INPUT: _expense_input_reply,
-    prompts.PROMPT_STATEMENT_MONTH: _statement_month_reply,
-    prompts.PROMPT_RUNNING_MONTH: _running_month_reply,
-    prompts.PROMPT_CARDS_ADD: _cards_add_reply,
-    prompts.PROMPT_CARDS_LIMIT: _cards_reply(cards.limit_reply),
-    prompts.PROMPT_CARDS_CUTOFF: _cards_reply(cards.cutoff_reply),
-}
 
 
 # --- menu tap flows ---
@@ -350,8 +280,9 @@ def _month_callback(parts: list[str], chat_id, message_id) -> None:
             return
         if card is None or default is None or card["card_id"] != default["card_id"]:
             return
+        pending_state.set_pending(pending_state.ACTION_MONTH, card["card_id"], origin=prefix)
         prompt = prompts.PROMPT_STATEMENT_MONTH if prefix == "stmt" else prompts.PROMPT_RUNNING_MONTH
-        send_telegram(chat_id, prompt, reply_markup=_force_reply_markup())
+        send_telegram(chat_id, prompt, reply_markup=menu.pending_cancel_keyboard())
         return
 
     # detail toggle: [prefix, detail_on|off, card_id, month]
@@ -420,43 +351,18 @@ def _extract_command(text: str) -> str | None:
     return text[1:].split(None, 1)[0].lower().split("@")[0]
 
 
-def _looks_like_expense(text: str) -> bool:
-    """Optional shortcut: a message that starts with a date or an amount is
-    treated as an expense entry, even without tapping the button first."""
-    first = text.split(None, 1)[0] if text else ""
-    if not first:
-        return False
-    try:
-        if parse_date(first, today_wib()) is not None:
-            return True
-    except ValueError:
-        pass
-    try:
-        parse_amount(first)
-        return True
-    except ValueError:
-        return False
-
-
 def _route(message: dict) -> tuple[str, dict]:
     """Route a chat message → (reply_text, reply_markup). Routing priority:
 
     1. reply to a ForceReply prompt (exact match on reply_to_message.text)
-    2. menu label tap → feature entry flow (clears any pending card input)
+    2. menu label tap → feature entry flow (clears any pending input)
     3. slash → /start, /help show the menu; other slash redirects (pending cleared)
-    4. pending card input → consume the free text for the active action
-    5. (optional) direct expense entry
-    6. fallback
+    4. pending input → consume the free text for the active action
+    5. fallback (generic — free text only matters after its related button)
     """
     text = (message.get("text") or "").strip()
 
-    # 1. Reply to a ForceReply prompt.
-    reply_to = message.get("reply_to_message") or {}
-    prompt_fn = PROMPT_HANDLERS.get((reply_to.get("text") or "").strip())
-    if prompt_fn:
-        return _safe(prompt_fn, text)
-
-    # 2. Menu label tap → feature entry flow. The user moved on: clear pending.
+    # 1. Menu label tap → feature entry flow. The user moved on: clear pending.
     cmd = menu.cmd_for_label(text)
     if cmd:
         log_event(log, "menu_tap", label=text[:60], cmd=cmd)
@@ -474,13 +380,28 @@ def _route(message: dict) -> tuple[str, dict]:
     state = pending_state.read_pending()
     log_event(log, "pending_read", state=state[0] if state else None, action=state[1] if state else None)
     if state and state[0] == "fresh":
-        action, card_id = state[1], state[2]
+        action, card_id, origin = state[1], state[2], state[3]
         log_event(log, "pending_input", action=action, card=card_id, text=text[:40])
         if action == pending_state.ACTION_ADD:
             reply, _ = cards.start_add(text)
             if reply.startswith("❌"):
                 return reply, menu.pending_cancel_keyboard()  # keep pending, allow cancel
             return reply, menu.add_confirm_keyboard()
+        if action == pending_state.ACTION_EXPENSE:
+            reply = expense.handle(text)
+            if not reply.startswith("❌"):
+                pending_state.clear_pending()
+            else:
+                return reply, menu.pending_cancel_keyboard()
+            return reply, menu.reply_keyboard()
+        if action == pending_state.ACTION_MONTH:
+            clean = " ".join(t for t in text.split() if not t.startswith("@"))
+            if parse_month_arg(clean.strip(), today_wib()) is None:
+                return messages.err("Invalid month — e.g. sep26 or november"), menu.pending_cancel_keyboard()
+            handler = statement.handle if origin == pending_state.ORIGIN_STMT else running.handle
+            reply = handler(text)
+            pending_state.clear_pending()
+            return reply, menu.reply_keyboard()
         fn = {
             pending_state.ACTION_LIMIT: cards.limit_reply,
             pending_state.ACTION_CUTOFF: cards.cutoff_reply,
@@ -503,6 +424,9 @@ def _route(message: dict) -> tuple[str, dict]:
         if text.isdigit():
             note = messages.err(f"That {action} change expired — tap again if you still want it.")
             card = sheets.get_card(card_id) if card_id is not None else None
+            if origin in (pending_state.ORIGIN_STMT, pending_state.ORIGIN_RUN) and card is not None:
+                context, markup = _view_for(card, origin)
+                return note + "\n\n" + context, markup
             if origin == pending_state.ORIGIN_CARD and card is not None:
                 context = cards.describe(card_id)
                 markup = menu.cards_actions_keyboard(card, sheets.get_default_card())

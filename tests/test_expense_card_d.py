@@ -32,14 +32,14 @@ def test_no_sticky_no_at_uses_default(monkeypatch):
 
 
 def test_sticky_card_used_for_expense(monkeypatch):
-    appended = _patch_sheets(monkeypatch, config={"expense_card_id": "2"})
+    appended = _patch_sheets(monkeypatch, config={"app.expense_card_id": "2"})
     out = expense.handle("150000 Lunch")
     assert appended and appended[0]["card_id"] == 2
     assert "Tokopedia Card" in out  # confirmation line names the card
 
 
 def test_sticky_invalid_falls_back_to_default(monkeypatch):
-    appended = _patch_sheets(monkeypatch, config={"expense_card_id": "99"})
+    appended = _patch_sheets(monkeypatch, config={"app.expense_card_id": "99"})
     out = expense.handle("150000 Lunch")
     assert appended and appended[0]["card_id"] == 1
     assert "Tokopedia Card" not in out
@@ -47,19 +47,19 @@ def test_sticky_invalid_falls_back_to_default(monkeypatch):
 
 def test_sticky_deactivated_card_falls_back(monkeypatch):
     inactive = dict(TOKOPEDIA, is_active=False)
-    appended = _patch_sheets(monkeypatch, config={"expense_card_id": "2"}, cards=[BNI, inactive])
+    appended = _patch_sheets(monkeypatch, config={"app.expense_card_id": "2"}, cards=[BNI, inactive])
     out = expense.handle("150000 Lunch")
     assert appended and appended[0]["card_id"] == 1
 
 
 def test_at_override_beats_sticky(monkeypatch):
-    appended = _patch_sheets(monkeypatch, config={"expense_card_id": "2"})
+    appended = _patch_sheets(monkeypatch, config={"app.expense_card_id": "2"})
     out = expense.handle("@bni 150000 Lunch")
     assert appended and appended[0]["card_id"] == 1
 
 
 def test_unknown_at_raises_clear_error(monkeypatch):
-    appended = _patch_sheets(monkeypatch, config={"expense_card_id": "2"})
+    appended = _patch_sheets(monkeypatch, config={"app.expense_card_id": "2"})
     out = expense.handle("@nope 150000 Lunch")
     assert "Unknown card: @nope" in out
     assert appended == []
@@ -67,11 +67,12 @@ def test_unknown_at_raises_clear_error(monkeypatch):
 
 # --- webhook chip-picker flow ---
 
-def test_expense_entry_single_active_card_straight_to_prompt(monkeypatch):
+def test_expense_entry_single_active_card_opens_pending_prompt(monkeypatch):
     _patch_sheets(monkeypatch, cards=[BNI])
+    monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: None)
     text, markup = w._expense_entry()
     assert text == prompts.PROMPT_EXPENSE_INPUT
-    assert markup.get("force_reply") is True
+    assert "cards:cancel" in str(markup)  # plain prompt + Cancel (no ForceReply)
 
 
 def test_expense_entry_multi_card_shows_chips(monkeypatch):
@@ -83,7 +84,7 @@ def test_expense_entry_multi_card_shows_chips(monkeypatch):
     assert inline[-1]["callback_data"] == "exp:other"
 
 
-def test_expense_pick_sets_sticky_and_sends_prompt(monkeypatch):
+def test_expense_pick_sets_sticky_and_sends_pending_prompt(monkeypatch):
     _patch_sheets(monkeypatch)
     sent = []
     upserts = []
@@ -91,12 +92,11 @@ def test_expense_pick_sets_sticky_and_sends_prompt(monkeypatch):
     monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: upserts.append((k, v)))
     monkeypatch.setattr("core.sheets.get_card", lambda cid: TOKOPEDIA)
     w._expense_callback("pick", 123, 456, "2")
-    assert upserts == [("expense_card_id", "2")]
+    assert ("app.expense_card_id", "2") in upserts
     assert len(sent) == 1
     text, markup = sent[0]
     assert text == prompts.PROMPT_EXPENSE_INPUT
-    assert "Recording to Tokopedia Card" in markup["input_field_placeholder"]
-    assert markup.get("force_reply") is True
+    assert "cards:cancel" in str(markup)
 
 
 def test_expense_pick_inactive_card_ignored(monkeypatch):

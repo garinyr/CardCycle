@@ -15,9 +15,9 @@ def _now_iso():
 
 def _pending_cfg(action, card_id):
     return {
-        "cards.pending_action": action,
-        "cards.pending_ts": _now_iso(),
-        "cards.edit_card_id": str(card_id),
+        "app.pending_action": action,
+        "app.pending_ts": _now_iso(),
+        "app.edit_card_id": str(card_id),
     }
 
 BNI = {"card_id": 1, "card_name": "BNI Mastercard", "bank": "BNI", "card_limit": 15000000, "cutoff_day": 13, "is_active": True}
@@ -173,7 +173,7 @@ def test_cards_cutoff_invalid_day_keeps_pending(monkeypatch):
     _patch_actions(monkeypatch, config=_pending_cfg("cutoff", 2))
     out = cards.cutoff_reply("40")
     assert "cutoff must be 1–28" in out
-    assert _pending_cfg("cutoff", 2)["cards.pending_action"]  # (state not consumed here; router clears on success)
+    assert _pending_cfg("cutoff", 2)["app.pending_action"]  # (state not consumed here; router clears on success)
 
 
 # --- summary ---

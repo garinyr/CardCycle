@@ -8,6 +8,7 @@ def _patch_sheets(monkeypatch):
     monkeypatch.setattr("core.sheets.get_default_card", lambda: dict(CARD))
     monkeypatch.setattr("core.sheets.get_cards", lambda: [])
     monkeypatch.setattr("core.sheets.get_config", lambda: {})
+    monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: None)
     monkeypatch.setattr("core.sheets.read_transactions", lambda: [])
     monkeypatch.setattr("core.sheets.allocate_ids", lambda count=1: 1)
     monkeypatch.setattr("core.sheets.append_transactions", lambda rows: None)
@@ -15,12 +16,10 @@ def _patch_sheets(monkeypatch):
 
 
 # 1. reply to a ForceReply prompt → handler
-def test_route_prompt_match_expense(monkeypatch):
+def test_route_expense_pending_consume(monkeypatch):
     _patch_sheets(monkeypatch)
-    msg = {"text": "150000 Lunch", "reply_to_message": {"text": prompts.PROMPT_EXPENSE_INPUT}}
-    reply, markup = w._route(msg)
-    assert "1 saved" in reply
-    assert "keyboard" in markup
+    reply, _ = w._route({"text": "150000 Lunch", "reply_to_message": {"text": prompts.PROMPT_EXPENSE_INPUT}})
+    assert "Recorded" not in reply  # legacy reply without pending no longer routes
 
 
 # 2. menu label tap → feature entry flow
@@ -32,12 +31,12 @@ def test_route_menu_label_statement(monkeypatch):
     assert "inline_keyboard" in markup
 
 
-def test_route_menu_label_expense_forces_reply(monkeypatch):
+def test_route_menu_label_expense_opens_pending_prompt(monkeypatch):
     _patch_sheets(monkeypatch)
     msg = {"text": menu.BTN_EXPENSE}
     reply, markup = w._route(msg)
     assert reply == prompts.PROMPT_EXPENSE_INPUT
-    assert markup.get("force_reply") is True
+    assert "cards:cancel" in str(markup)  # plain prompt + Cancel (no ForceReply)
 
 
 # 3. direct numeric expense entry (no button tap)
@@ -91,10 +90,3 @@ def test_route_fallback(monkeypatch):
     reply, markup = w._route(msg)
     assert reply == w.FALLBACK
     assert "keyboard" in markup
-
-
-def test_route_statement_month_retry_on_invalid():
-    msg = {"text": "not-a-month", "reply_to_message": {"text": prompts.PROMPT_STATEMENT_MONTH}}
-    reply, markup = w._route(msg)
-    assert reply == prompts.PROMPT_STATEMENT_MONTH
-    assert markup.get("force_reply") is True

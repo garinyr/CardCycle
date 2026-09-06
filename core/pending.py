@@ -41,6 +41,15 @@ PENDING_TTL_S = 300  # D2: 5 minutes
 
 ORIGIN_LIST = "list"
 ORIGIN_CARD = "card"
+ORIGIN_STMT = "stmt"
+ORIGIN_RUN = "run"
+
+# Canonical pending-action names (stored value + router key).
+ACTION_ADD = ACTION_ADD
+ACTION_LIMIT = ACTION_LIMIT
+ACTION_CUTOFF = ACTION_CUTOFF
+ACTION_EXPENSE = "expense"
+ACTION_MONTH = "month"
 
 _ALL_KEYS = (
     CONFIG_PENDING_ACTION,

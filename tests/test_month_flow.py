@@ -1,52 +1,64 @@
+"""tests/test_month_flow.py — month input via reply-free pending (stmt/run).
+
+The typed-month flow no longer uses ForceReply replies: tapping 📅 Other month
+opens a pending `month` action; free text is consumed only while fresh.
+"""
+
 import api.webhook as w
+from core import pending as p
 from core import prompts
 
-CARD = {"card_id": 1, "card_name": "Test", "card_limit": 15000000, "cutoff_day": 13}
+CARD = {"card_id": 1, "card_name": "Test", "card_limit": 15000000, "cutoff_day": 13, "is_active": True}
 
 
-def _patch_sheets(monkeypatch):
+def _pending_cfg(action, origin, card=1):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ts = datetime.now(ZoneInfo("Asia/Jakarta")).isoformat(timespec="seconds")
+    return {"app.pending_action": action, "app.pending_ts": ts, "app.edit_card_id": str(card)}
+
+
+def _patch(monkeypatch, cfg, txns=None):
     monkeypatch.setattr("core.sheets.get_default_card", lambda: dict(CARD))
-    monkeypatch.setattr("core.sheets.read_transactions", lambda: [])
+    monkeypatch.setattr("core.sheets.get_cards", lambda: [dict(CARD)])
+    monkeypatch.setattr("core.sheets.get_card", lambda cid: dict(CARD))
+    monkeypatch.setattr("core.sheets.get_config", lambda: cfg)
+    monkeypatch.setattr("core.sheets.upsert_config", lambda k, v: cfg.__setitem__(k, v))
+    monkeypatch.setattr("core.sheets.read_transactions", lambda: txns or [])
 
 
-def test_statement_month_valid(monkeypatch):
-    _patch_sheets(monkeypatch)
-    text, markup = w._statement_month_reply("mar25")
-    assert "March 2025" in text
-    assert "keyboard" in markup  # typed reply re-attaches the reply-keyboard menu
+def test_month_valid_routes_to_statement(monkeypatch):
+    cfg = _pending_cfg(p.ACTION_MONTH, p.ORIGIN_STMT)
+    _patch(monkeypatch, cfg)
+    monkeypatch.setattr("api.commands.statement.today_wib", lambda: __import__("datetime").date(2026, 9, 5))
+    reply, _ = w._route({"text": "sep26"})
+    assert "September 2026" in reply
+    assert cfg.get("app.pending_action") == ""
 
 
-def test_statement_month_invalid_retries(monkeypatch):
-    _patch_sheets(monkeypatch)
-    text, markup = w._statement_month_reply("garbage")
-    assert text == prompts.PROMPT_STATEMENT_MONTH
-    assert markup.get("force_reply") is True
+def test_month_valid_routes_to_running(monkeypatch):
+    cfg = _pending_cfg(p.ACTION_MONTH, p.ORIGIN_RUN)
+    _patch(monkeypatch, cfg)
+    monkeypatch.setattr("api.commands.running.today_wib", lambda: __import__("datetime").date(2026, 9, 5))
+    reply, _ = w._route({"text": "sep26"})
+    assert "Running" in reply
+    assert cfg.get("app.pending_action") == ""
 
 
-def test_running_month_valid(monkeypatch):
-    _patch_sheets(monkeypatch)
-    text, markup = w._running_month_reply("mar25")
-    assert "March 2025" in text
-    assert "keyboard" in markup
+def test_month_invalid_keeps_pending(monkeypatch):
+    cfg = _pending_cfg(p.ACTION_MONTH, p.ORIGIN_STMT)
+    _patch(monkeypatch, cfg)
+    reply, markup = w._route({"text": "garbage"})
+    assert "Invalid month" in reply
+    assert cfg.get("app.pending_action") == p.ACTION_MONTH  # stays for retype
+    assert "cards:cancel" in str(markup)
 
 
-def test_running_month_invalid_retries_distinct_prompt(monkeypatch):
-    _patch_sheets(monkeypatch)
-    text, markup = w._running_month_reply("garbage")
-    assert text == prompts.PROMPT_RUNNING_MONTH
-    assert markup.get("force_reply") is True
-
-
-def test_statement_and_running_prompts_not_swapped(monkeypatch):
-    _patch_sheets(monkeypatch)
+def test_statement_and_running_prompts_distinct():
     assert prompts.PROMPT_STATEMENT_MONTH != prompts.PROMPT_RUNNING_MONTH
-    text, _ = w._statement_month_reply("zzz")
-    assert text == prompts.PROMPT_STATEMENT_MONTH
 
 
-def test_retry_not_dead_end(monkeypatch):
-    _patch_sheets(monkeypatch)
-    text1, _ = w._statement_month_reply("garbage")
-    assert text1 == prompts.PROMPT_STATEMENT_MONTH
-    text2, _ = w._statement_month_reply("feb26")
-    assert "February 2026" in text2
+def test_no_pending_month_text_generic_error(monkeypatch):
+    _patch(monkeypatch, {})
+    reply, _ = w._route({"text": "sep26"})
+    assert reply == w.FALLBACK
