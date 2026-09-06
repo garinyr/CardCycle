@@ -29,6 +29,31 @@ _cards_cache: list[dict] | None = None
 _cards_cache_ts = 0.0
 _config_cache: dict[str, str] | None = None
 _config_cache_ts = 0.0
+# Key→row cache for Config writes: avoids one col_values READ per upsert
+# (quota burst — 429 Read requests). Warm for _CACHE_TTL, refreshed lazily.
+_config_rows: dict[str, int] | None = None
+_config_rows_ts = 0.0
+_config_rows_last = 0
+
+
+def _config_key_rows() -> tuple[dict[str, int], int]:
+    """(key→row-index map, last row number). One READ, cached TTL seconds."""
+    global _config_rows, _config_rows_ts, _config_rows_last
+    now = time.time()
+    if _config_rows is None or now - _config_rows_ts >= _CACHE_TTL:
+        ws = _worksheet(SHEET_CONFIG)
+        vals = ws.col_values(1)
+        rows = {}
+        for i, k in enumerate(vals):
+            if i == 0:
+                continue  # header row
+            k = (k or "").strip()
+            if k:
+                rows[k] = i + 1
+        _config_rows = rows
+        _config_rows_last = len(vals)
+        _config_rows_ts = now
+    return _config_rows, _config_rows_last
 
 
 def get_client() -> gspread.Client:
@@ -212,32 +237,31 @@ def _invalidate_config_cache() -> None:
 
 
 def set_config(key: str, value) -> None:
-    ws = _worksheet(SHEET_CONFIG)
-    keys = ws.col_values(1)  # column A = key
-    try:
-        idx = keys.index(key)
-    except ValueError:
+    rows, _ = _config_key_rows()
+    if key not in rows:
         raise RuntimeError(f"Config has no key '{key}'")
-    row = idx + 1
-    ws.update_cell(row, 2, value)
+    _worksheet(SHEET_CONFIG).update_cell(rows[key], 2, value)
     _invalidate_config_cache()
 
 
 def upsert_config(key: str, value) -> None:
     """Update `key` in Config, or append the row when it does not exist yet.
 
-    MVP2 groundwork (sticky `expense_card_id`) — keys may be created at runtime,
-    unlike the MVP1 keys that are provisioned manually.
+    MVP2 groundwork (runtime keys like `app.pending_*`) — keys may be created
+    at runtime, unlike the MVP1 keys that are provisioned manually. Uses the
+    cached key→row map: one READ per burst, then direct cell updates.
     """
+    global _config_rows, _config_rows_last
     ws = _worksheet(SHEET_CONFIG)
-    keys = ws.col_values(1)  # column A = key
-    try:
-        idx = keys.index(key)
-    except ValueError:
+    rows, last = _config_key_rows()
+    if key in rows:
+        ws.update_cell(rows[key], 2, value)
+    else:
         # headers: key | value | description | updated_at
         ws.append_rows([[key, value, "", ""]], value_input_option="RAW")
-    else:
-        ws.update_cell(idx + 1, 2, value)
+        rows[key] = last + 1
+        _config_rows_last = last + 1
+        _config_rows = rows
     _invalidate_config_cache()
 
 

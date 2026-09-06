@@ -160,7 +160,7 @@ def test_cutoff_callback_sets_normalized_pending_action(monkeypatch):
     monkeypatch.setattr("core.sheets.get_cards", lambda: [BNI, TOKOPEDIA])
     monkeypatch.setattr("api.webhook.send_telegram", lambda chat, text, reply_markup=None: None)
     w._handle_callback({"id": "1", "data": "cards:cutoff:2", "message": {"chat": {"id": 1}, "message_id": 5}})
-    assert cfg.get("app.pending_action") == "cutoff"
+    assert '"a": "cutoff"' in cfg.get("app.pending", "")
 
 
 # --- replied legacy prompt without pending → generic error (never expense) ---
