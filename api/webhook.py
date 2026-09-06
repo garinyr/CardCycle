@@ -9,8 +9,8 @@ from http.server import BaseHTTPRequestHandler
 from api import auth, config
 from api.commands import cards, expense, help as help_cmd, running, statement, summary
 from api.telegram import answer_callback, edit_telegram, send_telegram
-from core import menu, messages, pending as pending_state, prompts, sheets
-from core.cb import PREFIX_CARDS, action_of
+from core import freetext, menu, messages, pending as pending_state, prompts, sheets
+from core.cb import PREFIX_CARDS, action_of, build as cb_build
 from core.formatter import parse_month_arg, today_wib
 from core.logger import get_logger, log_event
 from core.parser import parse_amount, parse_date
@@ -78,6 +78,15 @@ def _send_expense_prompt(chat_id, card: dict) -> None:
 
 
 def _expense_callback(action: str, chat_id, message_id) -> None:
+    if action in ("record_yes", "record_no"):
+        draft = pending_state.draft()
+        pending_state.clear_pending()
+        if action == "record_yes" and draft is not None and draft[1] > 0:
+            reply = expense.handle(str(draft[1]))
+        else:
+            reply = messages.info("Expense cancelled.")
+        edit_telegram(chat_id, message_id, reply, reply_markup={"inline_keyboard": []})
+        return
     pending_state.clear_pending()
     if action == "other":
         default = sheets.get_default_card()
@@ -144,7 +153,7 @@ def _view_markup(card, prefix: str, detail: bool = False, viewing: str | None = 
     active = [c for c in sheets.get_cards() if c.get("is_active")]
     if len(active) > 1:
         markup["inline_keyboard"].append(
-            [{"text": "🗂 All cards", "callback_data": f"{prefix}:all:{card['card_id']}"}]
+            [{"text": "🗂 All cards", "callback_data": cb_build(prefix, "all", card["card_id"])}]
         )
     return markup
 
@@ -324,8 +333,8 @@ def _month_callback(parts: list[str], chat_id, message_id) -> None:
                 label += " ⭐"
             if c["card_id"] == viewing:
                 label += " (viewing)"
-            rows.append([{"text": label, "callback_data": f"{prefix}:view:{c['card_id']}"}])
-        rows.append([{"text": "↩️ Back", "callback_data": f"{prefix}:back:{viewing}"}])
+            rows.append([{"text": label, "callback_data": cb_build(prefix, "view", c["card_id"])}])
+        rows.append([{"text": "↩️ Back", "callback_data": cb_build(prefix, "back", viewing)}])
         title = "Statement" if prefix == "stmt" else "Running"
         edit_telegram(chat_id, message_id, f"{title} — pick a card:", reply_markup={"inline_keyboard": rows})
         return
@@ -354,7 +363,24 @@ def _month_callback(parts: list[str], chat_id, message_id) -> None:
         send_telegram(chat_id, prompt, reply_markup=_force_reply_markup())
         return
 
-    # month tap / detail toggle: [prefix, card_id, month, (detail_*)].
+    # detail toggle: [prefix, detail_on|off, card_id, month]
+    if len(parts) >= 4 and parts[1] in ("detail_on", "detail_off"):
+        try:
+            cid = int(parts[2])
+        except (TypeError, ValueError):
+            return
+        card = sheets.get_card(cid)
+        if card is None:
+            return
+        label = parse_month_arg(parts[3], today_wib())
+        if label is None:
+            return
+        detail = parts[1] == "detail_on"
+        text = _render_card(card, prefix, label, detail=detail)
+        edit_telegram(chat_id, message_id, text, reply_markup=_view_markup(card, prefix, detail=detail, viewing=label))
+        return
+
+    # month tap: [prefix, card_id, month].
     try:
         cid = int(parts[1])
     except (TypeError, ValueError, IndexError):
@@ -490,12 +516,24 @@ def _route(message: dict) -> tuple[str, dict]:
                 markup = menu.cards_pick_keyboard(sheets.get_cards(), sheets.get_default_card())
             return note + "\n\n" + context, markup
 
-    # 5. Direct expense entry (date/amount first).
+    # 5. Bare number, no pending → confirm before recording (D2).
+    if freetext.is_bare_amount(text):
+        try:
+            amount = int(text.replace(".", "").replace(",", ""))
+        except ValueError:
+            amount = 0
+        pending_state.save_draft("*", amount, 0)
+        return f"Record Rp {amount:,} as an expense?", menu.expense_record_keyboard()
+
+    # 6. Direct expense entry (date/amount first).
     if _looks_like_expense(text):
         log_event(log, "expense_shortcut", text=text[:40])
         return _safe(expense.handle, text)
 
-    # 6. Fallback.
+    # 7. Fallback with a targeted hint.
+    hint = freetext.suggest(text)
+    if hint:
+        return "❌ I don't understand that.\n\n💡 " + hint, menu.reply_keyboard()
     return FALLBACK, menu.reply_keyboard()
 
 

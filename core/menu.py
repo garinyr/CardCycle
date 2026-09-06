@@ -16,7 +16,12 @@ from core.cb import (
     CARDS_ACTION_LIST as ACTION_LIST,
     CARDS_ACTION_MAIN as ACTION_MAIN,
     CARDS_ACTION_SEL as ACTION_SEL,
+    EXP_ACTION_OTHER,
+    EXP_ACTION_PICK,
+    EXP_ACTION_RECORD_NO,
+    EXP_ACTION_RECORD_YES,
     PREFIX_CARDS,
+    PREFIX_EXP,
     build as cb_build,
 )
 from core.formatter import DIVIDER, block, bold
@@ -125,14 +130,15 @@ def month_keyboard(today, cutoff_day: int, prefix: str = "stmt", card_id: int = 
             rows.append(month_buttons[i:i + 3])
 
     cur_token = _token(viewed)
+    detail_action = "detail_off" if detail else "detail_on"
     detail_btn = {
         "text": "🔼 Summary" if detail else "🔍 Details",
-        "callback_data": f"{prefix}:{card_id}:{cur_token}:detail_off" if detail else f"{prefix}:{card_id}:{cur_token}:detail_on",
+        "callback_data": cb_build(prefix, detail_action, card_id, cur_token),
     }
     rows.append([detail_btn])
 
     if months and show_other:
-        other_btn = {"text": "📅 Other month", "callback_data": f"{prefix}:other:{card_id}"}
+        other_btn = {"text": "📅 Other month", "callback_data": cb_build(prefix, "other", card_id)}
         rows.append([other_btn])
 
     return {"inline_keyboard": rows}
@@ -185,15 +191,25 @@ def add_confirm_keyboard() -> dict:
     }
 
 
+def expense_record_keyboard() -> dict:
+    """Confirm buttons for a bare-number expense (D2)."""
+    return {
+        "inline_keyboard": [[
+            {"text": "✅ Record as expense", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_RECORD_YES)},
+            {"text": "✖️ Cancel", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_RECORD_NO)},
+        ]]
+    }
+
+
 def expense_choice_keyboard(default_card: dict, sticky_card: dict | None) -> dict:
     """First step of the expense flow when >1 active card: chips to pick where
     the batch will be recorded. The current target (sticky or default) leads;
     ⭐ marks the global default; Other opens the full picker."""
     current = sticky_card if sticky_card is not None else default_card
-    buttons = [{"text": f"💳 {current['card_name']}", "callback_data": f"exp:pick:{current['card_id']}"}]
+    buttons = [{"text": f"💳 {current['card_name']}", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_PICK, current["card_id"])}]
     if sticky_card is not None and sticky_card["card_id"] != default_card["card_id"]:
-        buttons.append({"text": f"💳 {default_card['card_name']} ⭐", "callback_data": f"exp:pick:{default_card['card_id']}"})
-    buttons.append({"text": "🗂 Other card…", "callback_data": "exp:other"})
+        buttons.append({"text": f"💳 {default_card['card_name']} ⭐", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_PICK, default_card["card_id"])})
+    buttons.append({"text": "🗂 Other card…", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_OTHER)})
     return {"inline_keyboard": [buttons]}
 
 
@@ -205,5 +221,5 @@ def expense_pick_keyboard(cards: list[dict], default_card: dict | None = None) -
         if not c.get("is_active"):
             continue
         marker = " ⭐" if default_card is not None and c["card_id"] == default_card["card_id"] else ""
-        rows.append([{"text": f"💳 {c['card_name']}{marker}", "callback_data": f"exp:pick:{c['card_id']}"}])
+        rows.append([{"text": f"💳 {c['card_name']}{marker}", "callback_data": cb_build(PREFIX_EXP, EXP_ACTION_PICK, c["card_id"])}])
     return {"inline_keyboard": rows}

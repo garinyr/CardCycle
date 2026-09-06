@@ -36,7 +36,7 @@ def test_month_keyboard_tokens_carry_card_id(monkeypatch):
 def test_detail_toggle_token_carries_card_id():
     kb = menu.month_keyboard(date(2026, 9, 5), 13, prefix="run", card_id=2, months=False)
     detail = kb["inline_keyboard"][0][0]
-    assert detail["callback_data"].startswith("run:2:")
+    assert detail["callback_data"].startswith("run:detail_on:2:")
 
 
 def test_other_month_hidden_for_non_default_card():

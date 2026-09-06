@@ -27,6 +27,12 @@ CARDS_ACTION_ADDNO = "addno"
 CARDS_ACTION_LIMIT = "limit"
 CARDS_ACTION_CUTOFF = "cutoff"
 
+# Canonical expense-flow action names.
+EXP_ACTION_PICK = "pick"
+EXP_ACTION_OTHER = "other"
+EXP_ACTION_RECORD_YES = "record_yes"
+EXP_ACTION_RECORD_NO = "record_no"
+
 # canonical action name → callback token, per feature prefix.
 ACTIONS: dict[str, dict[str, str]] = {
     PREFIX_CARDS: {
@@ -41,8 +47,10 @@ ACTIONS: dict[str, dict[str, str]] = {
         CARDS_ACTION_CUTOFF: "cutoff",
     },
     PREFIX_EXP: {
-        "pick": "pick",
-        "other": "other",
+        EXP_ACTION_PICK: "pick",
+        EXP_ACTION_OTHER: "other",
+        EXP_ACTION_RECORD_YES: "record_yes",
+        EXP_ACTION_RECORD_NO: "record_no",
     },
     PREFIX_STMT: {
         "all": "all",
